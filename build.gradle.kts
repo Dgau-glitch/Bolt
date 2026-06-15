@@ -102,3 +102,39 @@ tasks.register("checkFoliaMigration") {
 tasks.named("check") {
     dependsOn("checkFoliaMigration")
 }
+
+// The root project is an aggregator. Do not publish an empty root jar that can be mistaken for the runtime plugin.
+tasks.named<Jar>("jar") {
+    enabled = false
+}
+
+tasks.named("shadowJar") {
+    enabled = false
+}
+
+tasks.named("assemble") {
+    dependsOn(":bolt-bukkit:shadowJar")
+}
+
+tasks.register("verifyPluginJarMetadata") {
+    group = "verification"
+    description = "Verifies that the runtime plugin jar contains Bukkit/Folia plugin metadata."
+    dependsOn(":bolt-bukkit:shadowJar")
+    doLast {
+        val shadowJar = project(":bolt-bukkit").tasks.named("shadowJar").get()
+        val archiveFile = (shadowJar as AbstractArchiveTask).archiveFile.get().asFile
+        if (!archiveFile.isFile) {
+            throw GradleException("Runtime plugin jar was not created: $archiveFile")
+        }
+        val entries = zipTree(archiveFile).matching {
+            include("plugin.yml", "paper-plugin.yml")
+        }.files
+        if (entries.isEmpty()) {
+            throw GradleException("Runtime plugin jar is missing plugin.yml or paper-plugin.yml: $archiveFile")
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn("verifyPluginJarMetadata")
+}
