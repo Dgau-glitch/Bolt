@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.LogManager;
@@ -54,6 +55,7 @@ public class SQLStore implements Store {
     private final Map<String, Group> removeGroups = new ConcurrentHashMap<>();
     private final Map<UUID, AccessList> saveAccessLists = new ConcurrentHashMap<>();
     private final Map<UUID, AccessList> removeAccessLists = new ConcurrentHashMap<>();
+    private final AtomicBoolean flushRequested = new AtomicBoolean();
     private final Configuration configuration;
     private final String connectionUrl;
     private Connection connection;
@@ -96,7 +98,7 @@ public class SQLStore implements Store {
                 e.printStackTrace();
             }
         }
-        executor.scheduleWithFixedDelay(this::flush, 30, 30, TimeUnit.SECONDS);
+        executor.scheduleWithFixedDelay(this::flushQueued, 30, 30, TimeUnit.SECONDS);
         if (usingMySQL) {
             executor.scheduleWithFixedDelay(this::reconnect, 30, 30, TimeUnit.MINUTES);
         }
@@ -120,8 +122,20 @@ public class SQLStore implements Store {
                 connection.close();
             }
             connection = DriverManager.getConnection(connectionUrl, configuration.username(), configuration.password());
+            configureDurability();
         } catch (SQLException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void configureDurability() throws SQLException {
+        if (!"sqlite".equals(configuration.type()) || connection == null) {
+            return;
+        }
+        try (final PreparedStatement journalMode = connection.prepareStatement("PRAGMA journal_mode=WAL");
+             final PreparedStatement synchronous = connection.prepareStatement("PRAGMA synchronous=FULL")) {
+            journalMode.execute();
+            synchronous.execute();
         }
     }
 
@@ -202,6 +216,7 @@ public class SQLStore implements Store {
         final BlockProtection snapshot = copy(protection);
         removeBlocks.remove(snapshot.getId());
         saveBlocks.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void saveBlockProtectionNow(BlockProtection protection) {
@@ -228,6 +243,7 @@ public class SQLStore implements Store {
         final BlockProtection snapshot = copy(protection);
         saveBlocks.remove(snapshot.getId());
         removeBlocks.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void removeBlockProtectionNow(BlockProtection protection) {
@@ -300,6 +316,7 @@ public class SQLStore implements Store {
         final EntityProtection snapshot = copy(protection);
         removeEntities.remove(snapshot.getId());
         saveEntities.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void saveEntityProtectionNow(EntityProtection protection) {
@@ -322,6 +339,7 @@ public class SQLStore implements Store {
         final EntityProtection snapshot = copy(protection);
         saveEntities.remove(snapshot.getId());
         removeEntities.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void removeEntityProtectionNow(EntityProtection protection) {
@@ -385,6 +403,7 @@ public class SQLStore implements Store {
         final Group snapshot = copy(group);
         removeGroups.remove(snapshot.getName());
         saveGroups.put(snapshot.getName(), snapshot);
+        requestFlush();
     }
 
     private void saveGroupNow(Group group) {
@@ -403,6 +422,7 @@ public class SQLStore implements Store {
         final Group snapshot = copy(group);
         saveGroups.remove(snapshot.getName());
         removeGroups.put(snapshot.getName(), snapshot);
+        requestFlush();
     }
 
     private void removeGroupNow(Group group) {
@@ -463,6 +483,7 @@ public class SQLStore implements Store {
         final AccessList snapshot = copy(accessList);
         removeAccessLists.remove(snapshot.getOwner());
         saveAccessLists.put(snapshot.getOwner(), snapshot);
+        requestFlush();
     }
 
     private void saveAccessListNow(AccessList accessList) {
@@ -480,6 +501,7 @@ public class SQLStore implements Store {
         final AccessList snapshot = copy(accessList);
         saveAccessLists.remove(snapshot.getOwner());
         removeAccessLists.put(snapshot.getOwner(), snapshot);
+        requestFlush();
     }
 
     private void removeAccessListNow(AccessList accessList) {
@@ -502,21 +524,43 @@ public class SQLStore implements Store {
         final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
         CompletableFuture.runAsync(() -> {
             try {
-                flushBatch(saveBlocks, this::saveBlockProtectionNow);
-                flushBatch(removeBlocks, this::removeBlockProtectionNow);
-                flushBatch(saveEntities, this::saveEntityProtectionNow);
-                flushBatch(removeEntities, this::removeEntityProtectionNow);
-                flushBatch(saveGroups, this::saveGroupNow);
-                flushBatch(removeGroups, this::removeGroupNow);
-                flushBatch(saveAccessLists, this::saveAccessListNow);
-                flushBatch(removeAccessLists, this::removeAccessListNow);
-            } catch (SQLException e) {
-                e.printStackTrace();
+                flushQueued();
             } finally {
                 completionFuture.complete(null);
             }
         }, executor);
         return completionFuture;
+    }
+
+    private void requestFlush() {
+        if (!flushRequested.compareAndSet(false, true)) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                flushQueued();
+            } finally {
+                flushRequested.set(false);
+                if (pendingSave() > 0) {
+                    requestFlush();
+                }
+            }
+        }, executor);
+    }
+
+    private void flushQueued() {
+        try {
+            flushBatch(saveBlocks, this::saveBlockProtectionNow);
+            flushBatch(removeBlocks, this::removeBlockProtectionNow);
+            flushBatch(saveEntities, this::saveEntityProtectionNow);
+            flushBatch(removeEntities, this::removeEntityProtectionNow);
+            flushBatch(saveGroups, this::saveGroupNow);
+            flushBatch(removeGroups, this::removeGroupNow);
+            flushBatch(saveAccessLists, this::saveAccessListNow);
+            flushBatch(removeAccessLists, this::removeAccessListNow);
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     private <K, V> void flushBatch(final Map<K, V> queue, final SQLConsumer<V> writer) throws SQLException {
