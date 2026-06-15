@@ -1,55 +1,74 @@
 package org.popcraft.bolt.util;
 
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.Entity;
 import org.bukkit.plugin.Plugin;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 public class SchedulerUtil {
+    private static final FoliaSchedulerService SCHEDULER = new DefaultFoliaSchedulerService();
+
     private SchedulerUtil() {
     }
 
-    public static void schedule(final Plugin plugin, final CommandSender sender, final Runnable runnable) {
-        schedule(plugin, sender, runnable, 0);
+    public static FoliaSchedulerService service() {
+        return SCHEDULER;
     }
 
-    public static void schedule(final Plugin plugin, final CommandSender sender, final Runnable runnable, final long delay) {
-        if (FoliaUtil.isFolia()) {
-            if (sender instanceof final Player player) {
-                player.getScheduler().execute(plugin, runnable, () -> {
-                }, delay);
-            } else {
-                if (delay <= 0) {
-                    Bukkit.getGlobalRegionScheduler().execute(plugin, runnable);
-                } else {
-                    Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> runnable.run(), delay);
-                }
-            }
-        } else {
-            Bukkit.getServer().getScheduler().scheduleSyncDelayedTask(plugin, runnable, delay);
-        }
+    public static ScheduledTaskHandle schedule(final Plugin plugin, final CommandSender sender, final Runnable runnable) {
+        return schedule(plugin, sender, runnable, 0);
     }
 
-    public static void schedule(final Plugin plugin, final Location location, final Runnable runnable) {
-        if (FoliaUtil.isFolia()) {
-            Bukkit.getRegionScheduler().execute(plugin, location, runnable);
-        } else {
-            Bukkit.getServer().getScheduler().scheduleSyncDelayedTask(plugin, runnable);
-        }
+    public static ScheduledTaskHandle schedule(final Plugin plugin, final CommandSender sender, final Runnable runnable, final long delay) {
+        return SCHEDULER.sender(plugin, sender, runnable, delay);
     }
 
-    public static void schedule(final Plugin plugin, final Runnable runnable, final long delay, final long interval) {
-        if (FoliaUtil.isFolia()) {
-            Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, scheduledTask -> runnable.run(), delay, interval);
-        } else {
-            Bukkit.getServer().getScheduler().scheduleSyncRepeatingTask(plugin, runnable, delay, interval);
-        }
+    public static ScheduledTaskHandle schedule(final Plugin plugin, final Location location, final Runnable runnable) {
+        return SCHEDULER.region(plugin, location, runnable);
+    }
+
+    public static ScheduledTaskHandle schedule(final Plugin plugin, final Location location, final Runnable runnable, final long delay) {
+        return SCHEDULER.regionDelayed(plugin, location, runnable, delay);
+    }
+
+    public static ScheduledTaskHandle schedule(final Plugin plugin, final Entity entity, final Runnable runnable) {
+        return SCHEDULER.entity(plugin, entity, runnable);
+    }
+
+    public static ScheduledTaskHandle schedule(final Plugin plugin, final Runnable runnable, final long delay, final long interval) {
+        return SCHEDULER.globalRepeating(plugin, runnable, delay, interval);
+    }
+
+    public static ScheduledTaskHandle async(final Plugin plugin, final Runnable runnable) {
+        return SCHEDULER.async(plugin, runnable);
     }
 
     public static Executor executor(final Plugin plugin, final CommandSender sender) {
-        return command -> schedule(plugin, sender, command);
+        return SCHEDULER.senderExecutor(plugin, sender);
+    }
+
+    public static <T> CompletableFuture<T> thenAcceptSender(final CompletableFuture<T> future, final Plugin plugin, final CommandSender sender, final Consumer<T> consumer) {
+        return SCHEDULER.thenAcceptSender(future, plugin, sender, consumer);
+    }
+
+    public static <T> CompletableFuture<T> whenCompleteSender(final CompletableFuture<T> future, final Plugin plugin, final CommandSender sender, final BiConsumer<T, Throwable> consumer) {
+        return SCHEDULER.whenCompleteSender(future, plugin, sender, consumer);
+    }
+
+    public static <T> CompletableFuture<T> thenAcceptEntity(final CompletableFuture<T> future, final Plugin plugin, final Entity entity, final Consumer<T> consumer) {
+        return SCHEDULER.thenAcceptEntity(future, plugin, entity, consumer);
+    }
+
+    public static <T> CompletableFuture<T> thenAcceptRegion(final CompletableFuture<T> future, final Plugin plugin, final Location location, final Consumer<T> consumer) {
+        return SCHEDULER.thenAcceptRegion(future, plugin, location, consumer);
+    }
+
+    public static <T> CompletableFuture<T> exceptionallyToSender(final CompletableFuture<T> future, final Plugin plugin, final CommandSender sender, final Consumer<Throwable> consumer) {
+        return SCHEDULER.exceptionallyToSender(future, plugin, sender, consumer);
     }
 }
