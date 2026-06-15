@@ -20,6 +20,11 @@ import java.util.function.Consumer;
 /**
  * Bolt API methods. It is meant to be used through the {@link org.bukkit.plugin.ServicesManager services manager}.
  * <p>
+ * Folia contract: methods accepting {@link Block}, {@link Entity}, {@link Player}, {@link World} or other Bukkit
+ * world objects must be called from the scheduler context that owns those objects. Methods that only create or mutate
+ * Bolt data objects without touching Bukkit world state are async-safe unless their method documentation says otherwise.
+ * Global scans such as {@link #loadProtections()} should not be called from hot tick paths.
+ * <p>
  * {@snippet lang=java :
  * BoltAPI bolt = Bukkit.getServer().getServicesManager().load(BoltAPI.class);
  * }

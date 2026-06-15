@@ -71,3 +71,34 @@ fun commitsSinceLastTag(): String {
     }
     return tagDescription.toString().split('-')[1]
 }
+
+tasks.register("checkFoliaMigration") {
+    group = "verification"
+    description = "Checks for Folia migration regressions in scheduler and entity lookup hot paths."
+    doLast {
+        val sourceRoots = listOf("bukkit/src/main/java", "folia/src/main/java")
+        val schedulerAdapter = file("folia/src/main/java/org/popcraft/bolt/util/DefaultFoliaSchedulerService.java").canonicalFile
+        val forbiddenScheduler = Regex("Bukkit\\.getScheduler|getServer\\(\\)\\.getScheduler|scheduleSync")
+        val forbiddenChunkEntities = Regex("\\.getEntities\\(")
+        val violations = mutableListOf<String>()
+        sourceRoots.map(::file).filter(File::exists).forEach { root ->
+            root.walkTopDown().filter { it.isFile && it.extension == "java" }.forEach { source ->
+                val canonicalSource = source.canonicalFile
+                val text = source.readText()
+                if (canonicalSource != schedulerAdapter && forbiddenScheduler.containsMatchIn(text)) {
+                    violations.add("Forbidden scheduler API outside adapter: ${source.relativeTo(projectDir)}")
+                }
+                if (forbiddenChunkEntities.containsMatchIn(text)) {
+                    violations.add("Forbidden Chunk#getEntities-style scan: ${source.relativeTo(projectDir)}")
+                }
+            }
+        }
+        if (violations.isNotEmpty()) {
+            throw GradleException(violations.joinToString(System.lineSeparator()))
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn("checkFoliaMigration")
+}

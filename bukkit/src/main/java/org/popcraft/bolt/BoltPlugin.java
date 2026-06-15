@@ -197,6 +197,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
     private boolean doorsOpenDouble;
     private int doorsCloseAfter;
     private boolean doorsFixPlugins;
+    private boolean redstoneExtendedProtectionLookup;
     private Bolt bolt;
     private CallbackManager callbackManager;
     private EventBus<Event> eventBus;
@@ -252,6 +253,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         this.doorsOpenDouble = getConfig().getBoolean("doors.open-double", false);
         this.doorsCloseAfter = getConfig().getInt("doors.close-after", 0);
         this.doorsFixPlugins = getConfig().getBoolean("doors.fix-plugins", false);
+        this.redstoneExtendedProtectionLookup = getConfig().getBoolean("settings.redstone-extended-protection-lookup", false);
         registerAccessTypes();
         registerProtectableAccess();
         nagInvalidHopperConfig();
@@ -564,6 +566,10 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         return doorsFixPlugins;
     }
 
+    public boolean isRedstoneExtendedProtectionLookup() {
+        return redstoneExtendedProtectionLookup;
+    }
+
     public ProfileCache getProfileCache() {
         return profileCache;
     }
@@ -706,8 +712,12 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
 
     @Override
     public Protection findProtection(final Block block) {
+        return findProtection(block, true);
+    }
+
+    public Protection findProtection(final Block block, final boolean extendedLookup) {
         final Protection protection = loadProtection(block);
-        return protection != null ? protection : matchProtection(block);
+        return protection != null || !extendedLookup ? protection : matchProtection(block);
     }
 
     @Override
