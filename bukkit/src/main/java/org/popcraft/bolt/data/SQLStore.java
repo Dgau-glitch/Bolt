@@ -132,10 +132,19 @@ public class SQLStore implements Store {
         if (!"sqlite".equals(configuration.type()) || connection == null) {
             return;
         }
-        try (final PreparedStatement journalMode = connection.prepareStatement("PRAGMA journal_mode=WAL");
-             final PreparedStatement synchronous = connection.prepareStatement("PRAGMA synchronous=FULL")) {
-            journalMode.execute();
-            synchronous.execute();
+        executePragma("PRAGMA busy_timeout=5000");
+        executePragma("PRAGMA journal_mode=WAL");
+        executePragma("PRAGMA synchronous=FULL");
+    }
+
+    private void executePragma(final String pragma) throws SQLException {
+        try (final PreparedStatement statement = connection.prepareStatement(pragma)) {
+            final boolean hasResultSet = statement.execute();
+            if (hasResultSet) {
+                try (final ResultSet ignored = statement.getResultSet()) {
+                    // Closing the result set is required before executing another SQLite PRAGMA on this connection.
+                }
+            }
         }
     }
 
