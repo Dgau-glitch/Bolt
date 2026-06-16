@@ -5,11 +5,11 @@
 - Block matchers are synchronous region operations. Callers must already own the region containing the input block.
 - Entity matchers are synchronous entity operations. Callers must already own the entity scheduler context for the input entity.
 - Matchers must not load chunks, scan all entities in a chunk, block on async work, or cross to another region.
-- Matchers that need attached entities must use `NearbyEntityLookup`, which performs a bounded bounding-box lookup and delegates to the server API instead of `Chunk#getEntities()`.
+- Matchers that need attached entities must use `NearbyEntityLookup`, which performs a bounded bounding-box lookup and delegates to the server API instead of `Chunk#getEntities()` on non-Folia servers. On Folia it returns an empty result because `World#getNearbyEntities` is not safe from region tick threads in 1.21.11.
 
 ## Redstone path
 
-`BlockRedstoneEvent` uses direct block protection lookup by default. Extended matcher lookup for supporting blocks/entities is disabled unless `settings.redstone-extended-protection-lookup` is enabled. This avoids item-frame/painting/leash-knot nearby entity lookups in the hot redstone tick path.
+`BlockRedstoneEvent`, passive block spread/form, and leaves decay handlers use direct block protection lookup by default. Extended matcher lookup for supporting blocks/entities is disabled unless `settings.redstone-extended-protection-lookup` is enabled in explicit opt-in paths. This avoids item-frame/painting/leash-knot nearby entity lookups in hot tick paths.
 
 ## Nearby entity matchers
 

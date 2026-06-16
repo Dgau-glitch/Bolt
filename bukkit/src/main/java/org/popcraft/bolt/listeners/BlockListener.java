@@ -506,14 +506,14 @@ public final class BlockListener extends InteractionListener implements Listener
 
     @EventHandler
     public void onBlockForm(final BlockFormEvent e) {
-        if (plugin.isProtected(e.getBlock())) {
+        if (plugin.findProtection(e.getBlock(), false) != null) {
             e.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onBlockSpread(final BlockSpreadEvent e) {
-        if (plugin.isProtected(e.getBlock())) {
+        if (plugin.findProtection(e.getBlock(), false) != null) {
             e.setCancelled(true);
         }
     }
@@ -521,7 +521,7 @@ public final class BlockListener extends InteractionListener implements Listener
     @EventHandler
     public void onLeavesDecay(final LeavesDecayEvent e) {
         final Block block = e.getBlock();
-        if (plugin.isProtected(e.getBlock())) {
+        if (plugin.findProtection(e.getBlock(), false) != null) {
             if (block.getBlockData() instanceof final Leaves leaves) {
                 leaves.setPersistent(true);
             }

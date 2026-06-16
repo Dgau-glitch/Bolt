@@ -6,6 +6,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.util.BoundingBox;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.function.Predicate;
 
 public class FoliaUtil {
@@ -19,6 +20,9 @@ public class FoliaUtil {
     }
 
     public static Collection<Entity> getNearbyEntities(final Block block, final BoundingBox boundingBox, final Predicate<Entity> filter) {
+        if (isFolia()) {
+            return Collections.emptyList();
+        }
         final World world = block.getWorld();
         return world.getNearbyEntities(boundingBox, filter);
     }
