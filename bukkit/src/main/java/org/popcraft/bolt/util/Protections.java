@@ -22,8 +22,10 @@ import org.popcraft.bolt.source.Source;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.popcraft.bolt.lang.Translator.isTranslatable;
 import static org.popcraft.bolt.util.BoltComponents.getLocaleOf;
@@ -31,8 +33,30 @@ import static org.popcraft.bolt.util.BoltComponents.resolveTranslation;
 import static org.popcraft.bolt.util.BoltComponents.translateRaw;
 
 public final class Protections {
+    private static final Map<String, Component> CUSTOM_BLOCK_DISPLAY_NAMES = new ConcurrentHashMap<>();
+    private static final Map<String, Component> CUSTOM_ENTITY_DISPLAY_NAMES = new ConcurrentHashMap<>();
 
     private Protections() {
+    }
+
+    public static void registerBlockDisplayName(final String block, final Component displayName) {
+        CUSTOM_BLOCK_DISPLAY_NAMES.put(normalizeCustomKey(block), Objects.requireNonNull(displayName, "displayName"));
+    }
+
+    public static void unregisterBlockDisplayName(final String block) {
+        CUSTOM_BLOCK_DISPLAY_NAMES.remove(normalizeCustomKey(block));
+    }
+
+    public static void registerEntityDisplayName(final String entity, final Component displayName) {
+        CUSTOM_ENTITY_DISPLAY_NAMES.put(normalizeCustomKey(entity), Objects.requireNonNull(displayName, "displayName"));
+    }
+
+    public static void unregisterEntityDisplayName(final String entity) {
+        CUSTOM_ENTITY_DISPLAY_NAMES.remove(normalizeCustomKey(entity));
+    }
+
+    private static String normalizeCustomKey(final String key) {
+        return Objects.requireNonNull(key, "key").trim().toLowerCase(Locale.ROOT);
     }
 
     public static Component raw(final Protection protection) {
@@ -67,6 +91,10 @@ public final class Protections {
 
     public static Component displayType(final Protection protection, final CommandSender sender) {
         if (protection instanceof final BlockProtection blockProtection) {
+            final Component customDisplayName = CUSTOM_BLOCK_DISPLAY_NAMES.get(normalizeCustomKey(blockProtection.getBlock()));
+            if (customDisplayName != null) {
+                return customDisplayName;
+            }
             final World world = Bukkit.getWorld(blockProtection.getWorld());
             final int x = blockProtection.getX();
             final int y = blockProtection.getY();
@@ -77,6 +105,10 @@ public final class Protections {
                 return displayType(world.getBlockAt(x, y, z), sender);
             }
         } else if (protection instanceof final EntityProtection entityProtection) {
+            final Component customDisplayName = CUSTOM_ENTITY_DISPLAY_NAMES.get(normalizeCustomKey(entityProtection.getEntity()));
+            if (customDisplayName != null) {
+                return customDisplayName;
+            }
             final Entity entity = Bukkit.getServer().getEntity(entityProtection.getId());
             if (entity == null) {
                 try {
@@ -99,6 +131,10 @@ public final class Protections {
     }
 
     private static Component displayType(final Material material, final CommandSender sender) {
+        final Component customDisplayName = CUSTOM_BLOCK_DISPLAY_NAMES.get(normalizeCustomKey(material.name()));
+        if (customDisplayName != null) {
+            return customDisplayName;
+        }
         final String materialNameLower = material.name().toLowerCase();
         final String blockTranslationKey = "block_%s".formatted(materialNameLower);
         final String blockTranslation = translateRaw(blockTranslationKey, sender);
@@ -113,6 +149,10 @@ public final class Protections {
     }
 
     private static Component displayType(final EntityType entityType, final CommandSender sender) {
+        final Component customDisplayName = CUSTOM_ENTITY_DISPLAY_NAMES.get(normalizeCustomKey(entityType.name()));
+        if (customDisplayName != null) {
+            return customDisplayName;
+        }
         final String entityTypeLower = entityType.name().toLowerCase();
         final String entityTranslationKey = "entity_%s".formatted(entityTypeLower);
         final String entityTranslation = translateRaw(entityTranslationKey, sender);

@@ -1,5 +1,6 @@
 package org.popcraft.bolt;
 
+import net.kyori.adventure.text.Component;
 import net.kyori.event.EventBus;
 import net.kyori.event.SimpleEventBus;
 import org.bstats.bukkit.Metrics;
@@ -140,6 +141,8 @@ import org.popcraft.bolt.util.EnumUtil;
 import org.popcraft.bolt.util.Group;
 import org.popcraft.bolt.util.Mode;
 import org.popcraft.bolt.util.ProtectableConfig;
+import org.popcraft.bolt.util.ProtectionMessages;
+import org.popcraft.bolt.util.Protections;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -772,6 +775,51 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
             return true;
         }
         return permissions.length == 1 ? canAccessSingle(protection, sourceResolver, permissions[0]) : canAccessMulti(protection, sourceResolver, permissions);
+    }
+
+    @Override
+    public Component displayType(final Protection protection, final CommandSender viewer) {
+        return Protections.displayType(protection, viewer);
+    }
+
+    @Override
+    public void sendAccessDeniedMessage(final CommandSender sender, final Protection protection, final boolean actionBar) {
+        ProtectionMessages.sendAccessDenied(sender, protection, actionBar);
+    }
+
+    @Override
+    public void sendProtectionNotification(final CommandSender sender, final Protection protection, final boolean actionBar) {
+        ProtectionMessages.sendProtectionNotification(this, sender, protection, actionBar);
+    }
+
+    @Override
+    public void sendProtectionInfo(final CommandSender sender, final Protection protection, final boolean full) {
+        ProtectionMessages.sendProtectionInfo(this, sender, protection, full);
+    }
+
+    @Override
+    public void sendProtectionMessage(final CommandSender sender, final Protection protection, final String translationKey, final boolean actionBar) {
+        ProtectionMessages.sendProtectionMessage(sender, protection, translationKey, actionBar);
+    }
+
+    @Override
+    public void registerBlockDisplayName(final String block, final Component displayName) {
+        Protections.registerBlockDisplayName(block, displayName);
+    }
+
+    @Override
+    public void unregisterBlockDisplayName(final String block) {
+        Protections.unregisterBlockDisplayName(block);
+    }
+
+    @Override
+    public void registerEntityDisplayName(final String entity, final Component displayName) {
+        Protections.registerEntityDisplayName(entity, displayName);
+    }
+
+    @Override
+    public void unregisterEntityDisplayName(final String entity) {
+        Protections.unregisterEntityDisplayName(entity);
     }
 
     private boolean canAccessMulti(final Protection protection, final SourceResolver sourceResolver, final String... permissions) {
