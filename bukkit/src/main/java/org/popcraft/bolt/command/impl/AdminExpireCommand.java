@@ -10,11 +10,13 @@ import org.popcraft.bolt.data.Store;
 import org.popcraft.bolt.lang.Translation;
 import org.popcraft.bolt.protection.BlockProtection;
 import org.popcraft.bolt.util.BoltComponents;
+import org.popcraft.bolt.util.SchedulerUtil;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 public class AdminExpireCommand extends BoltCommand {
@@ -24,8 +26,6 @@ public class AdminExpireCommand extends BoltCommand {
 
     @Override
     public void execute(CommandSender sender, Arguments arguments) {
-        final Store store = plugin.getBolt().getStore();
-        final Collection<BlockProtection> protections = store.loadBlockProtections().join();
         final long now = System.currentTimeMillis();
         final Integer timeValue = arguments.nextAsInteger();
         final TimeUnit timeUnit = Optional.ofNullable(arguments.next())
@@ -43,6 +43,23 @@ public class AdminExpireCommand extends BoltCommand {
         }
         final long timeDiffMillis = TimeUnit.MILLISECONDS.convert(timeValue, timeUnit);
         final long expireTime = now - timeDiffMillis;
+        final Store store = plugin.getBolt().getStore();
+        CompletableFuture.supplyAsync(() -> expireProtections(store, expireTime))
+                .whenCompleteAsync((removed, throwable) -> {
+                    if (throwable != null) {
+                        throwable.printStackTrace();
+                        return;
+                    }
+                    BoltComponents.sendMessage(
+                            sender,
+                            Translation.EXPIRE_COMPLETE,
+                            Placeholder.component(Translation.Placeholder.COUNT, Component.text(removed))
+                    );
+                }, SchedulerUtil.executor(plugin, sender));
+    }
+
+    private long expireProtections(final Store store, final long expireTime) {
+        final Collection<BlockProtection> protections = store.loadBlockProtections().join();
         long removed = 0;
         for (final BlockProtection blockProtection : protections) {
             final long lastAccessed = blockProtection.getAccessed();
@@ -51,11 +68,7 @@ public class AdminExpireCommand extends BoltCommand {
                 ++removed;
             }
         }
-        BoltComponents.sendMessage(
-                sender,
-                Translation.EXPIRE_COMPLETE,
-                Placeholder.component(Translation.Placeholder.COUNT, Component.text(removed))
-        );
+        return removed;
     }
 
     @Override

@@ -45,49 +45,61 @@ public class AdminStorageCommand extends BoltCommand {
 
         final Store currentStore = plugin.getBolt().getStore();
 
+        this.isConverting.set(true);
         if ("export".equalsIgnoreCase(method)) {
-            if (Files.exists(exportPath)) {
-                BoltComponents.sendMessage(sender, Translation.STORAGE_EXPORT_EXISTS);
-                return;
-            }
-            final SQLStore exportStore = new SQLStore(databaseConfiguration);
-            BoltComponents.sendMessage(sender, Translation.STORAGE_EXPORT_STARTED);
-            this.isConverting.set(true);
-            this.transfer(currentStore, exportStore).whenCompleteAsync((v, throwable) -> {
-                this.isConverting.set(false);
-                if (throwable != null) {
-                    throwable.printStackTrace();
-                }
-                BoltComponents.sendMessage(sender, Translation.STORAGE_EXPORT_COMPLETED);
-                exportStore.close();
-            }, SchedulerUtil.executor(plugin, sender));
+            runStorageAsync(() -> exportStorage(sender, exportPath, databaseConfiguration, currentStore));
         } else {
-            if (!Files.exists(exportPath)) {
-                BoltComponents.sendMessage(sender, Translation.STORAGE_IMPORT_DOESNT_EXIST);
-                return;
-            }
-            final SQLStore exportStore = new SQLStore(databaseConfiguration);
-            BoltComponents.sendMessage(sender, Translation.STORAGE_IMPORT_STARTED);
-            this.isConverting.set(true);
-            this.transfer(exportStore, currentStore).whenCompleteAsync((v, throwable) -> {
-                this.isConverting.set(false);
-                if (throwable != null) {
-                    throwable.printStackTrace();
-                }
-                BoltComponents.sendMessage(sender, Translation.STORAGE_IMPORT_COMPLETED);
-                exportStore.close();
-            }, SchedulerUtil.executor(plugin, sender));
+            runStorageAsync(() -> importStorage(sender, exportPath, databaseConfiguration, currentStore));
         }
     }
 
-    private CompletableFuture<Void> transfer(final Store from, final Store to) {
-        return CompletableFuture.runAsync(() -> {
-            from.loadBlockProtections().join().forEach(to::saveBlockProtection);
-            from.loadEntityProtections().join().forEach(to::saveEntityProtection);
-            from.loadGroups().join().forEach(to::saveGroup);
-            from.loadAccessLists().join().forEach(to::saveAccessList);
-            to.flush().join();
+    private void runStorageAsync(final Runnable runnable) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                runnable.run();
+            } catch (final Throwable throwable) {
+                this.isConverting.set(false);
+                throwable.printStackTrace();
+            }
         });
+    }
+
+    private void exportStorage(final CommandSender sender, final Path exportPath, final SQLStore.Configuration databaseConfiguration, final Store currentStore) {
+        if (Files.exists(exportPath)) {
+            this.isConverting.set(false);
+            SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(sender, Translation.STORAGE_EXPORT_EXISTS));
+            return;
+        }
+        SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(sender, Translation.STORAGE_EXPORT_STARTED));
+        try (final SQLStore exportStore = new SQLStore(databaseConfiguration)) {
+            transfer(currentStore, exportStore);
+            SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(sender, Translation.STORAGE_EXPORT_COMPLETED));
+        } finally {
+            this.isConverting.set(false);
+        }
+    }
+
+    private void importStorage(final CommandSender sender, final Path exportPath, final SQLStore.Configuration databaseConfiguration, final Store currentStore) {
+        if (!Files.exists(exportPath)) {
+            this.isConverting.set(false);
+            SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(sender, Translation.STORAGE_IMPORT_DOESNT_EXIST));
+            return;
+        }
+        SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(sender, Translation.STORAGE_IMPORT_STARTED));
+        try (final SQLStore exportStore = new SQLStore(databaseConfiguration)) {
+            transfer(exportStore, currentStore);
+            SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(sender, Translation.STORAGE_IMPORT_COMPLETED));
+        } finally {
+            this.isConverting.set(false);
+        }
+    }
+
+    private void transfer(final Store from, final Store to) {
+        from.loadBlockProtections().join().forEach(to::saveBlockProtection);
+        from.loadEntityProtections().join().forEach(to::saveEntityProtection);
+        from.loadGroups().join().forEach(to::saveGroup);
+        from.loadAccessLists().join().forEach(to::saveAccessList);
+        to.flush().join();
     }
 
     @Override

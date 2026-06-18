@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,10 +30,14 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.LogManager;
 
-public class SQLStore implements Store {
+public class SQLStore implements Store, AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final TypeToken<HashMap<String, String>> ACCESS_LIST_TYPE_TOKEN = new TypeToken<>() {
     };
@@ -42,15 +45,17 @@ public class SQLStore implements Store {
     };
     private static final Type ACCESS_LIST_TYPE = ACCESS_LIST_TYPE_TOKEN.getType();
     private static final Type PLAYER_LIST_TYPE = PLAYER_LIST_TYPE_TOKEN.getType();
-    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-    private final Map<UUID, BlockProtection> saveBlocks = new HashMap<>();
-    private final Map<UUID, BlockProtection> removeBlocks = new HashMap<>();
-    private final Map<UUID, EntityProtection> saveEntities = new HashMap<>();
-    private final Map<UUID, EntityProtection> removeEntities = new HashMap<>();
-    private final Map<String, Group> saveGroups = new HashMap<>();
-    private final Map<String, Group> removeGroups = new HashMap<>();
-    private final Map<UUID, AccessList> saveAccessLists = new HashMap<>();
-    private final Map<UUID, AccessList> removeAccessLists = new HashMap<>();
+    private static final AtomicInteger WORKER_ID = new AtomicInteger();
+    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(dbWorkerThreadFactory());
+    private final Map<UUID, BlockProtection> saveBlocks = new ConcurrentHashMap<>();
+    private final Map<UUID, BlockProtection> removeBlocks = new ConcurrentHashMap<>();
+    private final Map<UUID, EntityProtection> saveEntities = new ConcurrentHashMap<>();
+    private final Map<UUID, EntityProtection> removeEntities = new ConcurrentHashMap<>();
+    private final Map<String, Group> saveGroups = new ConcurrentHashMap<>();
+    private final Map<String, Group> removeGroups = new ConcurrentHashMap<>();
+    private final Map<UUID, AccessList> saveAccessLists = new ConcurrentHashMap<>();
+    private final Map<UUID, AccessList> removeAccessLists = new ConcurrentHashMap<>();
+    private final AtomicBoolean flushRequested = new AtomicBoolean();
     private final Configuration configuration;
     private final String connectionUrl;
     private Connection connection;
@@ -93,7 +98,7 @@ public class SQLStore implements Store {
                 e.printStackTrace();
             }
         }
-        executor.scheduleWithFixedDelay(this::flush, 30, 30, TimeUnit.SECONDS);
+        executor.scheduleWithFixedDelay(this::flushQueued, 30, 30, TimeUnit.SECONDS);
         if (usingMySQL) {
             executor.scheduleWithFixedDelay(this::reconnect, 30, 30, TimeUnit.MINUTES);
         }
@@ -103,17 +108,47 @@ public class SQLStore implements Store {
                                 String password, String prefix, Map<String, String> properties) {
     }
 
+    private static ThreadFactory dbWorkerThreadFactory() {
+        return runnable -> {
+            final Thread thread = new Thread(runnable, "Bolt DB Worker #" + WORKER_ID.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
     private void reconnect() {
         try {
             if (connection != null) {
                 connection.close();
             }
             connection = DriverManager.getConnection(connectionUrl, configuration.username(), configuration.password());
+            configureDurability();
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
+    private void configureDurability() throws SQLException {
+        if (!"sqlite".equals(configuration.type()) || connection == null) {
+            return;
+        }
+        executePragma("PRAGMA busy_timeout=5000");
+        executePragma("PRAGMA journal_mode=WAL");
+        executePragma("PRAGMA synchronous=FULL");
+    }
+
+    private void executePragma(final String pragma) throws SQLException {
+        try (final PreparedStatement statement = connection.prepareStatement(pragma)) {
+            final boolean hasResultSet = statement.execute();
+            if (hasResultSet) {
+                try (final ResultSet ignored = statement.getResultSet()) {
+                    // Closing the result set is required before executing another SQLite PRAGMA on this connection.
+                }
+            }
+        }
+    }
+
+    @Override
     public void close() {
         this.executor.close();
         try {
@@ -188,7 +223,10 @@ public class SQLStore implements Store {
 
     @Override
     public void saveBlockProtection(BlockProtection protection) {
-        CompletableFuture.runAsync(() -> saveBlocks.put(protection.getId(), protection), executor);
+        final BlockProtection snapshot = copy(protection);
+        removeBlocks.remove(snapshot.getId());
+        saveBlocks.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void saveBlockProtectionNow(BlockProtection protection) {
@@ -212,11 +250,10 @@ public class SQLStore implements Store {
 
     @Override
     public void removeBlockProtection(BlockProtection protection) {
-        CompletableFuture.runAsync(() -> {
-            final UUID id = protection.getId();
-            saveBlocks.remove(id);
-            removeBlocks.put(id, protection);
-        }, executor);
+        final BlockProtection snapshot = copy(protection);
+        saveBlocks.remove(snapshot.getId());
+        removeBlocks.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void removeBlockProtectionNow(BlockProtection protection) {
@@ -286,7 +323,10 @@ public class SQLStore implements Store {
 
     @Override
     public void saveEntityProtection(EntityProtection protection) {
-        CompletableFuture.runAsync(() -> saveEntities.put(protection.getId(), protection), executor);
+        final EntityProtection snapshot = copy(protection);
+        removeEntities.remove(snapshot.getId());
+        saveEntities.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void saveEntityProtectionNow(EntityProtection protection) {
@@ -306,10 +346,10 @@ public class SQLStore implements Store {
 
     @Override
     public void removeEntityProtection(EntityProtection protection) {
-        CompletableFuture.runAsync(() -> {
-            saveEntities.remove(protection.getId());
-            removeEntities.put(protection.getId(), protection);
-        }, executor);
+        final EntityProtection snapshot = copy(protection);
+        saveEntities.remove(snapshot.getId());
+        removeEntities.put(snapshot.getId(), snapshot);
+        requestFlush();
     }
 
     private void removeEntityProtectionNow(EntityProtection protection) {
@@ -370,7 +410,10 @@ public class SQLStore implements Store {
 
     @Override
     public void saveGroup(Group group) {
-        CompletableFuture.runAsync(() -> saveGroups.put(group.getName(), group), executor);
+        final Group snapshot = copy(group);
+        removeGroups.remove(snapshot.getName());
+        saveGroups.put(snapshot.getName(), snapshot);
+        requestFlush();
     }
 
     private void saveGroupNow(Group group) {
@@ -386,7 +429,10 @@ public class SQLStore implements Store {
 
     @Override
     public void removeGroup(Group group) {
-        CompletableFuture.runAsync(() -> removeGroups.put(group.getName(), group), executor);
+        final Group snapshot = copy(group);
+        saveGroups.remove(snapshot.getName());
+        removeGroups.put(snapshot.getName(), snapshot);
+        requestFlush();
     }
 
     private void removeGroupNow(Group group) {
@@ -444,7 +490,10 @@ public class SQLStore implements Store {
 
     @Override
     public void saveAccessList(AccessList accessList) {
-        CompletableFuture.runAsync(() -> saveAccessLists.put(accessList.getOwner(), accessList), executor);
+        final AccessList snapshot = copy(accessList);
+        removeAccessLists.remove(snapshot.getOwner());
+        saveAccessLists.put(snapshot.getOwner(), snapshot);
+        requestFlush();
     }
 
     private void saveAccessListNow(AccessList accessList) {
@@ -459,7 +508,10 @@ public class SQLStore implements Store {
 
     @Override
     public void removeAccessList(AccessList accessList) {
-        CompletableFuture.runAsync(() -> removeAccessLists.put(accessList.getOwner(), accessList), executor);
+        final AccessList snapshot = copy(accessList);
+        saveAccessLists.remove(snapshot.getOwner());
+        removeAccessLists.put(snapshot.getOwner(), snapshot);
+        requestFlush();
     }
 
     private void removeAccessListNow(AccessList accessList) {
@@ -473,7 +525,8 @@ public class SQLStore implements Store {
 
     @Override
     public long pendingSave() {
-        return CompletableFuture.supplyAsync(() -> saveBlocks.size() + removeBlocks.size() + saveEntities.size() + removeEntities.size(), executor).join();
+        return saveBlocks.size() + removeBlocks.size() + saveEntities.size() + removeEntities.size() +
+                saveGroups.size() + removeGroups.size() + saveAccessLists.size() + removeAccessLists.size();
     }
 
     @Override
@@ -481,84 +534,98 @@ public class SQLStore implements Store {
         final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
         CompletableFuture.runAsync(() -> {
             try {
-                if (!saveBlocks.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<BlockProtection> saveBlocksIterator = saveBlocks.values().iterator();
-                    while (saveBlocksIterator.hasNext()) {
-                        saveBlockProtectionNow(saveBlocksIterator.next());
-                        saveBlocksIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!removeBlocks.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<BlockProtection> removeBlocksIterator = removeBlocks.values().iterator();
-                    while (removeBlocksIterator.hasNext()) {
-                        removeBlockProtectionNow(removeBlocksIterator.next());
-                        removeBlocksIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!saveEntities.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<EntityProtection> saveEntitiesIterator = saveEntities.values().iterator();
-                    while (saveEntitiesIterator.hasNext()) {
-                        saveEntityProtectionNow(saveEntitiesIterator.next());
-                        saveEntitiesIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!removeEntities.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<EntityProtection> removeEntitiesIterator = removeEntities.values().iterator();
-                    while (removeEntitiesIterator.hasNext()) {
-                        removeEntityProtectionNow(removeEntitiesIterator.next());
-                        removeEntitiesIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!saveGroups.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<Group> saveGroupsIterator = saveGroups.values().iterator();
-                    while (saveGroupsIterator.hasNext()) {
-                        saveGroupNow(saveGroupsIterator.next());
-                        saveGroupsIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!removeGroups.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<Group> removeGroupsIterator = removeGroups.values().iterator();
-                    while (removeGroupsIterator.hasNext()) {
-                        removeGroupNow(removeGroupsIterator.next());
-                        removeGroupsIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!saveAccessLists.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<AccessList> saveAccessListsIterator = saveAccessLists.values().iterator();
-                    while (saveAccessListsIterator.hasNext()) {
-                        saveAccessListNow(saveAccessListsIterator.next());
-                        saveAccessListsIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-                if (!removeAccessLists.isEmpty()) {
-                    connection.setAutoCommit(false);
-                    final Iterator<AccessList> removeAccessListsIterator = removeAccessLists.values().iterator();
-                    while (removeAccessListsIterator.hasNext()) {
-                        removeAccessListNow(removeAccessListsIterator.next());
-                        removeAccessListsIterator.remove();
-                    }
-                    connection.setAutoCommit(true);
-                }
-            } catch (SQLException e) {
-                e.printStackTrace();
+                flushQueued();
             } finally {
                 completionFuture.complete(null);
             }
         }, executor);
         return completionFuture;
+    }
+
+    private void requestFlush() {
+        if (!flushRequested.compareAndSet(false, true)) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                flushQueued();
+            } finally {
+                flushRequested.set(false);
+                if (pendingSave() > 0) {
+                    requestFlush();
+                }
+            }
+        }, executor);
+    }
+
+    private void flushQueued() {
+        try {
+            flushBatch(saveBlocks, this::saveBlockProtectionNow);
+            flushBatch(removeBlocks, this::removeBlockProtectionNow);
+            flushBatch(saveEntities, this::saveEntityProtectionNow);
+            flushBatch(removeEntities, this::removeEntityProtectionNow);
+            flushBatch(saveGroups, this::saveGroupNow);
+            flushBatch(removeGroups, this::removeGroupNow);
+            flushBatch(saveAccessLists, this::saveAccessListNow);
+            flushBatch(removeAccessLists, this::removeAccessListNow);
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private <K, V> void flushBatch(final Map<K, V> queue, final SQLConsumer<V> writer) throws SQLException {
+        if (queue.isEmpty()) {
+            return;
+        }
+        connection.setAutoCommit(false);
+        try {
+            for (final Map.Entry<K, V> entry : List.copyOf(queue.entrySet())) {
+                writer.accept(entry.getValue());
+                queue.remove(entry.getKey(), entry.getValue());
+            }
+        } finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
+    private BlockProtection copy(final BlockProtection protection) {
+        return new BlockProtection(
+                protection.getId(),
+                protection.getOwner(),
+                protection.getType(),
+                protection.getCreated(),
+                protection.getAccessed(),
+                new HashMap<>(protection.getAccess()),
+                protection.getWorld(),
+                protection.getX(),
+                protection.getY(),
+                protection.getZ(),
+                protection.getBlock()
+        );
+    }
+
+    private EntityProtection copy(final EntityProtection protection) {
+        return new EntityProtection(
+                protection.getId(),
+                protection.getOwner(),
+                protection.getType(),
+                protection.getCreated(),
+                protection.getAccessed(),
+                new HashMap<>(protection.getAccess()),
+                protection.getEntity()
+        );
+    }
+
+    private Group copy(final Group group) {
+        return new Group(group.getName(), group.getOwner(), new ArrayList<>(group.getMembers()));
+    }
+
+    private AccessList copy(final AccessList accessList) {
+        return new AccessList(accessList.getOwner(), new HashMap<>(accessList.getAccess()));
+    }
+
+    @FunctionalInterface
+    private interface SQLConsumer<T> {
+        void accept(T value) throws SQLException;
     }
 }

@@ -2,6 +2,7 @@ package org.popcraft.bolt.command.impl;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.CommandSender;
@@ -23,13 +24,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class AdminCleanup extends BoltCommand {
-    private static final int PERMITS = 10;
-    private static final Semaphore WORKING = new Semaphore(PERMITS);
-
     public AdminCleanup(BoltPlugin plugin) {
         super(plugin);
     }
@@ -61,37 +58,38 @@ public class AdminCleanup extends BoltCommand {
             blockProtectionsByChunk.get(chunkPos).add(blockProtection);
         }
         final AtomicLong removed = new AtomicLong();
-        CompletableFuture.runAsync(() -> {
-            for (final Map.Entry<ChunkPos, List<BlockProtection>> entry : blockProtectionsByChunk.entrySet()) {
-                final ChunkPos chunkPos = entry.getKey();
-                final List<BlockProtection> blockProtections = entry.getValue();
+        final List<CompletableFuture<Void>> cleanupTasks = new ArrayList<>();
+        for (final Map.Entry<ChunkPos, List<BlockProtection>> entry : blockProtectionsByChunk.entrySet()) {
+            final CompletableFuture<Void> cleanupTask = new CompletableFuture<>();
+            cleanupTasks.add(cleanupTask);
+            final ChunkPos chunkPos = entry.getKey();
+            final List<BlockProtection> blockProtections = entry.getValue();
+            final World world = worlds.get(chunkPos.world());
+            final Location chunkLocation = new Location(world, chunkPos.x() << 4, world.getMinHeight(), chunkPos.z() << 4);
+            SchedulerUtil.schedule(plugin, chunkLocation, () -> {
                 try {
-                    WORKING.acquire();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                    for (BlockProtection blockProtection : blockProtections) {
+                        final Block block = world.getBlockAt(blockProtection.getX(), blockProtection.getY(), blockProtection.getZ());
+                        if (!blockProtection.getBlock().equals(block.getType().name())) {
+                            store.removeBlockProtection(blockProtection);
+                            removed.incrementAndGet();
+                            SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(
+                                    sender,
+                                    Translation.CLEANUP_REMOVE,
+                                    Placeholder.component(Translation.Placeholder.RAW_PROTECTION, Protections.raw(blockProtection))
+                            ));
+                        }
+                    }
+                    cleanupTask.complete(null);
+                } catch (Exception e) {
+                    cleanupTask.completeExceptionally(e);
                 }
-                final World world = worlds.get(chunkPos.world());
-                final int x = chunkPos.x();
-                final int z = chunkPos.z();
-                world.getChunkAtAsync(x, z)
-                        .thenAccept(ignored -> {
-                            for (BlockProtection blockProtection : blockProtections) {
-                                final Block block = world.getBlockAt(blockProtection.getX(), blockProtection.getY(), blockProtection.getZ());
-                                if (!blockProtection.getBlock().equals(block.getType().name())) {
-                                    store.removeBlockProtection(blockProtection);
-                                    removed.incrementAndGet();
-                                    SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(
-                                            sender,
-                                            Translation.CLEANUP_REMOVE,
-                                            Placeholder.component(Translation.Placeholder.RAW_PROTECTION, Protections.raw(blockProtection))
-                                    ));
-                                }
-                            }
-                        })
-                        .thenRun(WORKING::release);
+            });
+        }
+        CompletableFuture.allOf(cleanupTasks.toArray(new CompletableFuture[0])).whenCompleteAsync((ignored, throwable) -> {
+            if (throwable != null) {
+                throwable.printStackTrace();
             }
-            WORKING.acquireUninterruptibly(PERMITS);
-        }).thenRunAsync(() -> {
             final long finish = System.currentTimeMillis();
             final long seconds = (finish - start) / 1000;
             BoltComponents.sendMessage(
@@ -100,7 +98,6 @@ public class AdminCleanup extends BoltCommand {
                     Placeholder.component(Translation.Placeholder.COUNT, Component.text(removed.get())),
                     Placeholder.component(Translation.Placeholder.SECONDS, Component.text(seconds))
             );
-            WORKING.release(PERMITS);
         }, SchedulerUtil.executor(plugin, sender));
     }
 

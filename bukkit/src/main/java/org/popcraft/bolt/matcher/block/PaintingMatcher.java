@@ -9,7 +9,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Painting;
 import org.bukkit.util.BoundingBox;
 import org.popcraft.bolt.matcher.Match;
-import org.popcraft.bolt.util.FoliaUtil;
+import org.popcraft.bolt.util.NearbyEntityLookup;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -35,7 +35,7 @@ public class PaintingMatcher implements BlockMatcher {
     @Override
     public Match findMatch(Block block) {
         final Set<Entity> entities = new HashSet<>();
-        FoliaUtil.getNearbyEntities(block, block.getBoundingBox().expand(0.5, 0, 0.5, 0.5, 0, 0.5), Painting.class::isInstance).forEach(entity -> {
+        NearbyEntityLookup.find(block, block.getBoundingBox().expand(0.5, 0, 0.5, 0.5, 0, 0.5), Painting.class).forEach(entity -> {
             if (entity instanceof final Painting painting) {
                 final Art art = painting.getArt();
                 final int width = art.getBlockWidth();

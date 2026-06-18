@@ -1,7 +1,9 @@
 package org.popcraft.bolt;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.util.BoundingBox;
@@ -19,6 +21,11 @@ import java.util.function.Consumer;
 
 /**
  * Bolt API methods. It is meant to be used through the {@link org.bukkit.plugin.ServicesManager services manager}.
+ * <p>
+ * Folia contract: methods accepting {@link Block}, {@link Entity}, {@link Player}, {@link World} or other Bukkit
+ * world objects must be called from the scheduler context that owns those objects. Methods that only create or mutate
+ * Bolt data objects without touching Bukkit world state are async-safe unless their method documentation says otherwise.
+ * Global scans such as {@link #loadProtections()} should not be called from hot tick paths.
  * <p>
  * {@snippet lang=java :
  * BoltAPI bolt = Bukkit.getServer().getServicesManager().load(BoltAPI.class);
@@ -171,6 +178,78 @@ public interface BoltAPI {
      * See {@link org.popcraft.bolt.util.Permission Permission} for permissions that exist.
      */
     boolean canAccess(final Protection protection, final SourceResolver sourceResolver, final String... permissions);
+
+    /**
+     * Returns the localized protection object display name Bolt uses in its own messages. Plugins that provide
+     * custom blocks or entities can override these names with {@link #registerBlockDisplayName(String, Component)}
+     * and {@link #registerEntityDisplayName(String, Component)}.
+     */
+    default Component displayType(final Protection protection, final CommandSender viewer) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide displayType");
+    }
+
+    /**
+     * Sends Bolt's standard "locked" interaction denial message for the given protection. This is optional API sugar
+     * for integrations that call {@link #canAccess(Protection, Player, String...)} themselves and still want the same
+     * user-facing feedback as Bolt listeners.
+     */
+    default void sendAccessDeniedMessage(final CommandSender sender, final Protection protection, final boolean actionBar) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide protection messages");
+    }
+
+    /**
+     * Sends Bolt's standard protection notification message, including owner lookup when available. This helper
+     * schedules the final sender message delivery through Bolt's scheduler facade.
+     */
+    default void sendProtectionNotification(final CommandSender sender, final Protection protection, final boolean actionBar) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide protection messages");
+    }
+
+    /**
+     * Sends Bolt's standard information message for a protection. When {@code full} is true the message includes
+     * access list and timestamp placeholders, matching Bolt's /bolt info click output.
+     */
+    default void sendProtectionInfo(final CommandSender sender, final Protection protection, final boolean full) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide protection messages");
+    }
+
+    /**
+     * Sends a Bolt translation that uses the common {@code <protection_type>} and {@code <protection>} placeholders.
+     * This allows integrations to opt into Bolt's current language files without duplicating placeholder logic.
+     */
+    default void sendProtectionMessage(final CommandSender sender, final Protection protection, final String translationKey, final boolean actionBar) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide protection messages");
+    }
+
+    /**
+     * Registers a display name override for a block key used by Bolt storage or Bukkit material names. Keys are
+     * matched case-insensitively; examples: {@code CHEST}, {@code minecraft:chest}, {@code myplugin:custom_chest}.
+     */
+    default void registerBlockDisplayName(final String block, final Component displayName) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide display name overrides");
+    }
+
+    /**
+     * Removes a display name override registered with {@link #registerBlockDisplayName(String, Component)}.
+     */
+    default void unregisterBlockDisplayName(final String block) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide display name overrides");
+    }
+
+    /**
+     * Registers a display name override for an entity key used by Bolt storage or Bukkit entity type names. Keys are
+     * matched case-insensitively; examples: {@code ITEM_FRAME}, {@code minecraft:item_frame}, {@code myplugin:crate}.
+     */
+    default void registerEntityDisplayName(final String entity, final Component displayName) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide display name overrides");
+    }
+
+    /**
+     * Removes a display name override registered with {@link #registerEntityDisplayName(String, Component)}.
+     */
+    default void unregisterEntityDisplayName(final String entity) {
+        throw new UnsupportedOperationException("This BoltAPI implementation does not provide display name overrides");
+    }
 
     /**
      * Registers a source resolver for players. This source resolver is checked every time a player tries to access a

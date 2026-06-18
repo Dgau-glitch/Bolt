@@ -38,21 +38,21 @@ public class AdminTransferCommand extends BoltCommand {
         final CompletableFuture<Profile> ownerProfileFuture = Profiles.findOrLookupProfileByName(owner);
         final CompletableFuture<Profile> newOwnerProfileFuture = Profiles.findOrLookupProfileByName(newOwner);
         if (newOwner != null) {
-            CompletableFuture.allOf(ownerProfileFuture, newOwnerProfileFuture).thenRun(() -> {
+            SchedulerUtil.thenAcceptSender(CompletableFuture.allOf(ownerProfileFuture, newOwnerProfileFuture), plugin, player, ignored -> {
                 final Profile ownerProfile = ownerProfileFuture.join();
                 final Profile newOwnerProfile = newOwnerProfileFuture.join();
                 if (ownerProfile.uuid() == null) {
-                    SchedulerUtil.schedule(plugin, player, () -> BoltComponents.sendMessage(
+                    BoltComponents.sendMessage(
                             player,
                             Translation.PLAYER_NOT_FOUND,
                             Placeholder.component(Translation.Placeholder.PLAYER, Component.text(owner))
-                    ));
+                    );
                 } else if (newOwnerProfile.uuid() == null) {
-                    SchedulerUtil.schedule(plugin, player, () -> BoltComponents.sendMessage(
+                    BoltComponents.sendMessage(
                             player,
                             Translation.PLAYER_NOT_FOUND,
                             Placeholder.component(Translation.Placeholder.PLAYER, Component.text(newOwner))
-                    ));
+                    );
                 } else {
                     plugin.loadProtections().stream()
                             .filter(protection -> protection.getOwner().equals(ownerProfile.uuid()))
@@ -60,16 +60,16 @@ public class AdminTransferCommand extends BoltCommand {
                                 protection.setOwner(newOwnerProfile.uuid());
                                 plugin.saveProtection(protection);
                             });
-                    SchedulerUtil.schedule(plugin, player, () -> BoltComponents.sendMessage(
+                    BoltComponents.sendMessage(
                             player,
                             Translation.CLICK_TRANSFER_ALL,
                             Placeholder.component(Translation.Placeholder.OLD_PLAYER, Component.text(owner)),
                             Placeholder.component(Translation.Placeholder.NEW_PLAYER, Component.text(newOwner))
-                    ));
+                    );
                 }
             });
         } else {
-            ownerProfileFuture.thenAccept(profile -> {
+            SchedulerUtil.thenAcceptSender(ownerProfileFuture, plugin, player, profile -> {
                 if (profile.uuid() != null) {
                     plugin.player(player).setAction(new Action(Action.Type.TRANSFER, "bolt.command.admin.transfer", profile.uuid().toString(), true));
                     BoltComponents.sendMessage(player, Translation.CLICK_TRANSFER, plugin.isUseActionBar());

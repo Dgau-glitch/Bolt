@@ -9,6 +9,7 @@ import org.popcraft.bolt.command.BoltCommand;
 import org.popcraft.bolt.data.Store;
 import org.popcraft.bolt.lang.Translation;
 import org.popcraft.bolt.util.BoltComponents;
+import org.popcraft.bolt.util.SchedulerUtil;
 
 import java.util.Collections;
 import java.util.List;
@@ -26,7 +27,11 @@ public class AdminFlushCommand extends BoltCommand {
                 Translation.FLUSH,
                 Placeholder.component(Translation.Placeholder.COUNT, Component.text(store.pendingSave()))
         );
-        store.flush().join();
+        store.flush().whenCompleteAsync((ignored, throwable) -> {
+            if (throwable != null) {
+                throwable.printStackTrace();
+            }
+        }, SchedulerUtil.executor(plugin, sender));
     }
 
     @Override

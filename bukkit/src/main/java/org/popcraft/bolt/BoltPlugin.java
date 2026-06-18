@@ -1,11 +1,8 @@
 package org.popcraft.bolt;
 
+import net.kyori.adventure.text.Component;
 import net.kyori.event.EventBus;
 import net.kyori.event.SimpleEventBus;
-import org.bstats.bukkit.Metrics;
-import org.bstats.charts.AdvancedPie;
-import org.bstats.charts.DrilldownPie;
-import org.bstats.charts.SimplePie;
 import org.bukkit.Keyed;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -140,6 +137,8 @@ import org.popcraft.bolt.util.EnumUtil;
 import org.popcraft.bolt.util.Group;
 import org.popcraft.bolt.util.Mode;
 import org.popcraft.bolt.util.ProtectableConfig;
+import org.popcraft.bolt.util.ProtectionMessages;
+import org.popcraft.bolt.util.Protections;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -197,6 +196,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
     private boolean doorsOpenDouble;
     private int doorsCloseAfter;
     private boolean doorsFixPlugins;
+    private boolean redstoneExtendedProtectionLookup;
     private Bolt bolt;
     private CallbackManager callbackManager;
     private EventBus<Event> eventBus;
@@ -225,8 +225,6 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         this.callbackManager = new CallbackManager(this);
         this.eventBus = new SimpleEventBus<>(Event.class);
         profileCache.load();
-        final Metrics metrics = new Metrics(this, 17711);
-        registerCustomCharts(metrics, databaseConfiguration);
         new ConfigMigration(this).convert();
         // Future: Move this into LWC Migration
         new TrustMigration(this).convert();
@@ -252,6 +250,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         this.doorsOpenDouble = getConfig().getBoolean("doors.open-double", false);
         this.doorsCloseAfter = getConfig().getInt("doors.close-after", 0);
         this.doorsFixPlugins = getConfig().getBoolean("doors.fix-plugins", false);
+        this.redstoneExtendedProtectionLookup = getConfig().getBoolean("settings.redstone-extended-protection-lookup", false);
         registerAccessTypes();
         registerProtectableAccess();
         nagInvalidHopperConfig();
@@ -259,41 +258,6 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         initializeMatchers();
         loadDefaultModes();
         registerDefaultSourceTransformers();
-    }
-
-    private void registerCustomCharts(final Metrics metrics, final SQLStore.Configuration databaseConfiguration) {
-        metrics.addCustomChart(new SimplePie("config_language", Translator::selected));
-        metrics.addCustomChart(new SimplePie("config_database", databaseConfiguration::type));
-        metrics.addCustomChart(new AdvancedPie("config_protections", () -> {
-            final Map<String, Integer> map = new HashMap<>();
-            bolt.getAccessRegistry().protectionTypes().forEach(type -> map.put(type, 1));
-            return map;
-        }));
-        metrics.addCustomChart(new AdvancedPie("config_access", () -> {
-            final Map<String, Integer> map = new HashMap<>();
-            bolt.getAccessRegistry().accessTypes().forEach(type -> map.put(type, 1));
-            return map;
-        }));
-        metrics.addCustomChart(new DrilldownPie("config_blocks", () -> {
-            Map<String, Map<String, Integer>> map = new HashMap<>();
-            Optional.ofNullable(getConfig().getConfigurationSection("blocks"))
-                    .ifPresent(section -> {
-                        final Set<String> types = section.getKeys(false);
-                        types.forEach(type -> map.put(type, Map.of(section.getString("%s.autoProtect".formatted(type), "false"), 1)));
-                    });
-            return map;
-        }));
-        metrics.addCustomChart(new DrilldownPie("config_entities", () -> {
-            Map<String, Map<String, Integer>> map = new HashMap<>();
-            Optional.ofNullable(getConfig().getConfigurationSection("entities"))
-                    .ifPresent(section -> {
-                        final Set<String> types = section.getKeys(false);
-                        types.forEach(type -> map.put(type, Map.of(section.getString("%s.autoProtect".formatted(type), "false"), 1)));
-                    });
-            return map;
-        }));
-        metrics.addCustomChart(new SimplePie("protections_blocks", () -> String.valueOf((int) Math.ceil(bolt.getStore().loadBlockProtections().join().size() / 1000f) * 1000)));
-        metrics.addCustomChart(new SimplePie("protections_entities", () -> String.valueOf((int) Math.ceil(bolt.getStore().loadEntityProtections().join().size() / 1000f) * 1000)));
     }
 
     private void registerAccessTypes() {
@@ -564,6 +528,10 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         return doorsFixPlugins;
     }
 
+    public boolean isRedstoneExtendedProtectionLookup() {
+        return redstoneExtendedProtectionLookup;
+    }
+
     public ProfileCache getProfileCache() {
         return profileCache;
     }
@@ -706,8 +674,12 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
 
     @Override
     public Protection findProtection(final Block block) {
+        return findProtection(block, true);
+    }
+
+    public Protection findProtection(final Block block, final boolean extendedLookup) {
         final Protection protection = loadProtection(block);
-        return protection != null ? protection : matchProtection(block);
+        return protection != null || !extendedLookup ? protection : matchProtection(block);
     }
 
     @Override
@@ -762,6 +734,51 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
             return true;
         }
         return permissions.length == 1 ? canAccessSingle(protection, sourceResolver, permissions[0]) : canAccessMulti(protection, sourceResolver, permissions);
+    }
+
+    @Override
+    public Component displayType(final Protection protection, final CommandSender viewer) {
+        return Protections.displayType(protection, viewer);
+    }
+
+    @Override
+    public void sendAccessDeniedMessage(final CommandSender sender, final Protection protection, final boolean actionBar) {
+        ProtectionMessages.sendAccessDenied(sender, protection, actionBar);
+    }
+
+    @Override
+    public void sendProtectionNotification(final CommandSender sender, final Protection protection, final boolean actionBar) {
+        ProtectionMessages.sendProtectionNotification(this, sender, protection, actionBar);
+    }
+
+    @Override
+    public void sendProtectionInfo(final CommandSender sender, final Protection protection, final boolean full) {
+        ProtectionMessages.sendProtectionInfo(this, sender, protection, full);
+    }
+
+    @Override
+    public void sendProtectionMessage(final CommandSender sender, final Protection protection, final String translationKey, final boolean actionBar) {
+        ProtectionMessages.sendProtectionMessage(sender, protection, translationKey, actionBar);
+    }
+
+    @Override
+    public void registerBlockDisplayName(final String block, final Component displayName) {
+        Protections.registerBlockDisplayName(block, displayName);
+    }
+
+    @Override
+    public void unregisterBlockDisplayName(final String block) {
+        Protections.unregisterBlockDisplayName(block);
+    }
+
+    @Override
+    public void registerEntityDisplayName(final String entity, final Component displayName) {
+        Protections.registerEntityDisplayName(entity, displayName);
+    }
+
+    @Override
+    public void unregisterEntityDisplayName(final String entity) {
+        Protections.unregisterEntityDisplayName(entity);
     }
 
     private boolean canAccessMulti(final Protection protection, final SourceResolver sourceResolver, final String... permissions) {

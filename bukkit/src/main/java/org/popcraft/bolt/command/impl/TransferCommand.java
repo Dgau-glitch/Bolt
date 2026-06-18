@@ -32,20 +32,20 @@ public class TransferCommand extends BoltCommand {
             return;
         }
         final String owner = arguments.next();
-        Profiles.findOrLookupProfileByName(owner).thenAccept(profile -> {
+        SchedulerUtil.thenAcceptSender(Profiles.findOrLookupProfileByName(owner), plugin, player, profile -> {
             if (profile.uuid() != null) {
                 plugin.player(player).setAction(new Action(Action.Type.TRANSFER, "bolt.command.transfer", profile.uuid().toString()));
-                SchedulerUtil.schedule(plugin, player, () -> BoltComponents.sendMessage(
+                BoltComponents.sendMessage(
                         player,
                         Translation.CLICK_TRANSFER,
                         plugin.isUseActionBar()
-                ));
+                );
             } else {
-                SchedulerUtil.schedule(plugin, player, () -> BoltComponents.sendMessage(
+                BoltComponents.sendMessage(
                         player,
                         Translation.PLAYER_NOT_FOUND,
                         Placeholder.component(Translation.Placeholder.PLAYER, Component.text(owner))
-                ));
+                );
             }
         });
     }

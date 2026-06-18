@@ -2,6 +2,7 @@ version: 0
 language: en
 settings:
   use-action-bar: false
+  redstone-extended-protection-lookup: false
   per-player-locale: true
 database:
   type: sqlite

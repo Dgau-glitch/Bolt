@@ -6,7 +6,7 @@ import org.bukkit.block.Block;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LeashHitch;
 import org.popcraft.bolt.matcher.Match;
-import org.popcraft.bolt.util.FoliaUtil;
+import org.popcraft.bolt.util.NearbyEntityLookup;
 
 import java.util.Set;
 
@@ -30,6 +30,6 @@ public class LeashKnotMatcher implements BlockMatcher {
 
     @Override
     public Match findMatch(Block block) {
-        return Match.ofEntities(FoliaUtil.getNearbyEntities(block, block.getBoundingBox(), LeashHitch.class::isInstance));
+        return Match.ofEntities(NearbyEntityLookup.find(block, block.getBoundingBox(), LeashHitch.class));
     }
 }

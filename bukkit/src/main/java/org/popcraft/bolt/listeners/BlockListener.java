@@ -453,7 +453,7 @@ public final class BlockListener extends InteractionListener implements Listener
 
     @EventHandler
     public void onBlockIgnite(final BlockIgniteEvent e) {
-        final Protection protection = plugin.findProtection(e.getBlock());
+        final Protection protection = plugin.findProtection(e.getBlock(), plugin.isRedstoneExtendedProtectionLookup());
         if (protection == null) {
             return;
         }
@@ -465,7 +465,7 @@ public final class BlockListener extends InteractionListener implements Listener
 
     @EventHandler
     public void onPlayerBucketEmpty(final PlayerBucketEmptyEvent e) {
-        final Protection protection = plugin.findProtection(e.getBlock());
+        final Protection protection = plugin.findProtection(e.getBlock(), plugin.isRedstoneExtendedProtectionLookup());
         if (protection == null) {
             return;
         }
@@ -488,7 +488,7 @@ public final class BlockListener extends InteractionListener implements Listener
 
     @EventHandler
     public void onPlayerBucketFill(final PlayerBucketFillEvent e) {
-        final Protection protection = plugin.findProtection(e.getBlock());
+        final Protection protection = plugin.findProtection(e.getBlock(), plugin.isRedstoneExtendedProtectionLookup());
         if (protection == null) {
             return;
         }
@@ -506,14 +506,14 @@ public final class BlockListener extends InteractionListener implements Listener
 
     @EventHandler
     public void onBlockForm(final BlockFormEvent e) {
-        if (plugin.isProtected(e.getBlock())) {
+        if (plugin.findProtection(e.getBlock(), false) != null) {
             e.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onBlockSpread(final BlockSpreadEvent e) {
-        if (plugin.isProtected(e.getBlock())) {
+        if (plugin.findProtection(e.getBlock(), false) != null) {
             e.setCancelled(true);
         }
     }
@@ -521,7 +521,7 @@ public final class BlockListener extends InteractionListener implements Listener
     @EventHandler
     public void onLeavesDecay(final LeavesDecayEvent e) {
         final Block block = e.getBlock();
-        if (plugin.isProtected(e.getBlock())) {
+        if (plugin.findProtection(e.getBlock(), false) != null) {
             if (block.getBlockData() instanceof final Leaves leaves) {
                 leaves.setPersistent(true);
             }
@@ -531,7 +531,7 @@ public final class BlockListener extends InteractionListener implements Listener
 
     @EventHandler
     public void onBlockRedstone(final BlockRedstoneEvent e) {
-        final Protection protection = plugin.findProtection(e.getBlock());
+        final Protection protection = plugin.findProtection(e.getBlock(), plugin.isRedstoneExtendedProtectionLookup());
         if (protection == null) {
             return;
         }
@@ -645,7 +645,7 @@ public final class BlockListener extends InteractionListener implements Listener
         if (!Material.SCULK_SENSOR.equals(material) && !Material.CALIBRATED_SCULK_SENSOR.equals(material)) {
             return;
         }
-        final Protection protection = plugin.findProtection(e.getBlock());
+        final Protection protection = plugin.findProtection(e.getBlock(), plugin.isRedstoneExtendedProtectionLookup());
         if (protection == null) {
             return;
         }

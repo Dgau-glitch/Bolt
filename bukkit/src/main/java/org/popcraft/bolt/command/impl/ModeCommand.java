@@ -13,6 +13,7 @@ import org.popcraft.bolt.lang.Translation;
 import org.popcraft.bolt.util.BoltComponents;
 import org.popcraft.bolt.util.BoltPlayer;
 import org.popcraft.bolt.util.Mode;
+import org.popcraft.bolt.util.SchedulerUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,7 +21,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 public class ModeCommand extends BoltCommand {
     public ModeCommand(BoltPlugin plugin) {
@@ -51,7 +51,7 @@ public class ModeCommand extends BoltCommand {
                     Placeholder.component(Translation.Placeholder.MODE, BoltComponents.resolveTranslation("mode_%s".formatted(mode.name().toLowerCase()), player))
             );
             final UUID uuid = player.getUniqueId();
-            CompletableFuture.runAsync(() -> {
+            SchedulerUtil.async(plugin, () -> {
                 final File playerFile = plugin.getDataPath().resolve("players/%s.yml".formatted(uuid)).toFile();
                 final FileConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
                 playerConfig.set(mode.name().toLowerCase(), hasMode);

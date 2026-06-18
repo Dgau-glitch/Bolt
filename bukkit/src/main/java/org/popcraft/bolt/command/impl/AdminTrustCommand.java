@@ -24,7 +24,7 @@ public class AdminTrustCommand extends TrustCommand {
     @Override
     public void execute(CommandSender sender, Arguments arguments) {
         final String target = arguments.next();
-        Profiles.findOrLookupProfileByName(target).thenAccept(profile -> {
+        SchedulerUtil.thenAcceptSender(Profiles.findOrLookupProfileByName(target), plugin, sender, profile -> {
             if (profile.uuid() != null) {
                 final String action = arguments.next();
                 if ("add".equalsIgnoreCase(action) || "remove".equalsIgnoreCase(action)) {
@@ -38,11 +38,11 @@ public class AdminTrustCommand extends TrustCommand {
                     super.trustList(sender, profile.uuid());
                 }
             } else {
-                SchedulerUtil.schedule(plugin, sender, () -> BoltComponents.sendMessage(
+                BoltComponents.sendMessage(
                     sender,
                     Translation.PLAYER_NOT_FOUND,
                     Placeholder.component(Translation.Placeholder.PLAYER, Component.text(target))
-                ));
+                );
             }
         });
 
