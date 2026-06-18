@@ -15,7 +15,6 @@ dependencies {
         exclude(module = "guava")
         exclude(module = "checker-qual")
     }
-    implementation(group = "org.bstats", name = "bstats-bukkit", version = "3.0.2")
     implementation(group = "org.popcraft", name = "chunky-nbt", version = "1.3.127")
     api(project(":bolt-common"))
     implementation(project(":bolt-folia"))
@@ -39,7 +38,6 @@ tasks {
             exclude(project(":bolt-folia"))
         }
         relocate("net.kyori.event", "${project.group}.${rootProject.name}.lib.net.kyori.event")
-        relocate("org.bstats", "${project.group}.${rootProject.name}.lib.org.bstats")
         relocate("org.popcraft.chunky.nbt", "${project.group}.${rootProject.name}.lib.org.popcraft.chunky.nbt")
         manifest {
             attributes("paperweight-mappings-namespace" to "mojang")

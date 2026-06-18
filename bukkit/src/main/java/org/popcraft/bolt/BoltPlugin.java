@@ -3,10 +3,6 @@ package org.popcraft.bolt;
 import net.kyori.adventure.text.Component;
 import net.kyori.event.EventBus;
 import net.kyori.event.SimpleEventBus;
-import org.bstats.bukkit.Metrics;
-import org.bstats.charts.AdvancedPie;
-import org.bstats.charts.DrilldownPie;
-import org.bstats.charts.SimplePie;
 import org.bukkit.Keyed;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -229,8 +225,6 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         this.callbackManager = new CallbackManager(this);
         this.eventBus = new SimpleEventBus<>(Event.class);
         profileCache.load();
-        final Metrics metrics = new Metrics(this, 17711);
-        registerCustomCharts(metrics, databaseConfiguration);
         new ConfigMigration(this).convert();
         // Future: Move this into LWC Migration
         new TrustMigration(this).convert();
@@ -264,41 +258,6 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         initializeMatchers();
         loadDefaultModes();
         registerDefaultSourceTransformers();
-    }
-
-    private void registerCustomCharts(final Metrics metrics, final SQLStore.Configuration databaseConfiguration) {
-        metrics.addCustomChart(new SimplePie("config_language", Translator::selected));
-        metrics.addCustomChart(new SimplePie("config_database", databaseConfiguration::type));
-        metrics.addCustomChart(new AdvancedPie("config_protections", () -> {
-            final Map<String, Integer> map = new HashMap<>();
-            bolt.getAccessRegistry().protectionTypes().forEach(type -> map.put(type, 1));
-            return map;
-        }));
-        metrics.addCustomChart(new AdvancedPie("config_access", () -> {
-            final Map<String, Integer> map = new HashMap<>();
-            bolt.getAccessRegistry().accessTypes().forEach(type -> map.put(type, 1));
-            return map;
-        }));
-        metrics.addCustomChart(new DrilldownPie("config_blocks", () -> {
-            Map<String, Map<String, Integer>> map = new HashMap<>();
-            Optional.ofNullable(getConfig().getConfigurationSection("blocks"))
-                    .ifPresent(section -> {
-                        final Set<String> types = section.getKeys(false);
-                        types.forEach(type -> map.put(type, Map.of(section.getString("%s.autoProtect".formatted(type), "false"), 1)));
-                    });
-            return map;
-        }));
-        metrics.addCustomChart(new DrilldownPie("config_entities", () -> {
-            Map<String, Map<String, Integer>> map = new HashMap<>();
-            Optional.ofNullable(getConfig().getConfigurationSection("entities"))
-                    .ifPresent(section -> {
-                        final Set<String> types = section.getKeys(false);
-                        types.forEach(type -> map.put(type, Map.of(section.getString("%s.autoProtect".formatted(type), "false"), 1)));
-                    });
-            return map;
-        }));
-        metrics.addCustomChart(new SimplePie("protections_blocks", () -> String.valueOf((int) Math.ceil(bolt.getStore().loadBlockProtections().join().size() / 1000f) * 1000)));
-        metrics.addCustomChart(new SimplePie("protections_entities", () -> String.valueOf((int) Math.ceil(bolt.getStore().loadEntityProtections().join().size() / 1000f) * 1000)));
     }
 
     private void registerAccessTypes() {
