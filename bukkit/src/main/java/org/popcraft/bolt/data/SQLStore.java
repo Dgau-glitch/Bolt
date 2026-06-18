@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.LogManager;
 
-public class SQLStore implements Store {
+public class SQLStore implements Store, AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final TypeToken<HashMap<String, String>> ACCESS_LIST_TYPE_TOKEN = new TypeToken<>() {
     };
@@ -148,6 +148,7 @@ public class SQLStore implements Store {
         }
     }
 
+    @Override
     public void close() {
         this.executor.close();
         try {
