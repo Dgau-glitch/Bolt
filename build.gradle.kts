@@ -78,8 +78,10 @@ tasks.register("checkFoliaMigration") {
     doLast {
         val sourceRoots = listOf("bukkit/src/main/java", "folia/src/main/java")
         val schedulerAdapter = file("folia/src/main/java/org/popcraft/bolt/util/DefaultFoliaSchedulerService.java").canonicalFile
+        val inventoryListener = file("bukkit/src/main/java/org/popcraft/bolt/listeners/InventoryListener.java").canonicalFile
         val forbiddenScheduler = Regex("Bukkit\\.getScheduler|getServer\\(\\)\\.getScheduler|scheduleSync")
         val forbiddenChunkEntities = Regex("\\.getEntities\\(")
+        val forbiddenInventoryExtendedLookup = Regex("\\.findProtection\\(")
         val violations = mutableListOf<String>()
         sourceRoots.map(::file).filter(File::exists).forEach { root ->
             root.walkTopDown().filter { it.isFile && it.extension == "java" }.forEach { source ->
@@ -90,6 +92,9 @@ tasks.register("checkFoliaMigration") {
                 }
                 if (forbiddenChunkEntities.containsMatchIn(text)) {
                     violations.add("Forbidden Chunk#getEntities-style scan: ${source.relativeTo(projectDir)}")
+                }
+                if (canonicalSource == inventoryListener && forbiddenInventoryExtendedLookup.containsMatchIn(text)) {
+                    violations.add("Inventory hot path must use direct protection lookup, not extended matchers: ${source.relativeTo(projectDir)}")
                 }
             }
         }

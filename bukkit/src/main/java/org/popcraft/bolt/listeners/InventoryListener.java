@@ -1,7 +1,10 @@
 package org.popcraft.bolt.listeners;
 
 import com.destroystokyo.paper.event.block.AnvilDamagedEvent;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.DoubleChest;
+import org.bukkit.block.data.type.Chest;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -19,6 +22,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.popcraft.bolt.BoltPlugin;
+import org.popcraft.bolt.protection.BlockProtection;
 import org.popcraft.bolt.protection.Protection;
 import org.popcraft.bolt.source.Source;
 import org.popcraft.bolt.source.SourceResolver;
@@ -186,10 +190,48 @@ public final class InventoryListener implements Listener {
     private Protection getInventoryProtection(final Inventory inventory) {
         final InventoryHolder holder = inventory.getHolder(false);
         return switch (holder) {
-            case final Entity entity -> plugin.findProtection(entity);
-            case final BlockInventoryHolder blockInventoryHolder -> plugin.findProtection(blockInventoryHolder.getBlock());
-            case final DoubleChest doubleChest -> plugin.findProtection(doubleChest.getLocation().getBlock());
+            case final Entity entity -> plugin.loadProtection(entity);
+            case final BlockInventoryHolder blockInventoryHolder -> getInventoryBlockProtection(blockInventoryHolder.getBlock());
+            case final DoubleChest doubleChest -> getDoubleChestProtection(doubleChest);
             case null, default -> null;
         };
+    }
+
+    private Protection getInventoryBlockProtection(final Block block) {
+        final BlockProtection protection = plugin.loadProtection(block);
+        if (protection != null) {
+            return protection;
+        }
+        return getAdjacentChestProtection(block);
+    }
+
+    private Protection getDoubleChestProtection(final DoubleChest doubleChest) {
+        final Protection leftProtection = getSideProtection(doubleChest.getLeftSide());
+        return leftProtection != null ? leftProtection : getSideProtection(doubleChest.getRightSide());
+    }
+
+    private Protection getSideProtection(final InventoryHolder inventoryHolder) {
+        if (inventoryHolder instanceof final BlockInventoryHolder blockInventoryHolder) {
+            return getInventoryBlockProtection(blockInventoryHolder.getBlock());
+        }
+        return null;
+    }
+
+    private Protection getAdjacentChestProtection(final Block block) {
+        if (!(block.getBlockData() instanceof final Chest chest) || Chest.Type.SINGLE.equals(chest.getType())) {
+            return null;
+        }
+        final BlockFace adjacentFace = switch (chest.getFacing()) {
+            case NORTH -> chest.getType() == Chest.Type.LEFT ? BlockFace.EAST : BlockFace.WEST;
+            case SOUTH -> chest.getType() == Chest.Type.LEFT ? BlockFace.WEST : BlockFace.EAST;
+            case EAST -> chest.getType() == Chest.Type.LEFT ? BlockFace.SOUTH : BlockFace.NORTH;
+            case WEST -> chest.getType() == Chest.Type.LEFT ? BlockFace.NORTH : BlockFace.SOUTH;
+            default -> null;
+        };
+        if (adjacentFace == null) {
+            return null;
+        }
+        final Block adjacent = block.getRelative(adjacentFace);
+        return adjacent.getBlockData() instanceof Chest ? plugin.loadProtection(adjacent) : null;
     }
 }
