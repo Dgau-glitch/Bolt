@@ -56,12 +56,14 @@ public class SQLStore implements Store, AutoCloseable {
     private final Map<UUID, AccessList> saveAccessLists = new ConcurrentHashMap<>();
     private final Map<UUID, AccessList> removeAccessLists = new ConcurrentHashMap<>();
     private final AtomicBoolean flushRequested = new AtomicBoolean();
+    private final long flushDelayMillis;
     private final Configuration configuration;
     private final String connectionUrl;
     private Connection connection;
 
     public SQLStore(final Configuration configuration) {
         this.configuration = configuration;
+        this.flushDelayMillis = Math.max(0L, configuration.flushDelayMillis());
         if ("sqlite".equals(configuration.type())) {
             try {
                 Files.createDirectories(Path.of(".").resolve(configuration.path()).getParent());
@@ -105,7 +107,7 @@ public class SQLStore implements Store, AutoCloseable {
     }
 
     public record Configuration(String type, String path, String hostname, String database, String username,
-                                String password, String prefix, Map<String, String> properties) {
+                                String password, String prefix, Map<String, String> properties, long flushDelayMillis) {
     }
 
     private static ThreadFactory dbWorkerThreadFactory() {
@@ -546,7 +548,7 @@ public class SQLStore implements Store, AutoCloseable {
         if (!flushRequested.compareAndSet(false, true)) {
             return;
         }
-        CompletableFuture.runAsync(() -> {
+        executor.schedule(() -> {
             try {
                 flushQueued();
             } finally {
@@ -555,7 +557,7 @@ public class SQLStore implements Store, AutoCloseable {
                     requestFlush();
                 }
             }
-        }, executor);
+        }, flushDelayMillis, TimeUnit.MILLISECONDS);
     }
 
     private void flushQueued() {

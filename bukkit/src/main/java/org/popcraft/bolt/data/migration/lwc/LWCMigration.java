@@ -93,7 +93,7 @@ public class LWCMigration {
                 lwcCoreConfig.getString("database.username", ""),
                 lwcCoreConfig.getString("database.password", ""),
                 lwcCoreConfig.getString("database.prefix", "lwc_"),
-                Map.of("useSSL", lwcCoreConfig.getString("database.useSSL", "false"))
+                Map.of("useSSL", lwcCoreConfig.getString("database.useSSL", "false")), 0L
         );
         final String connectionUrl = "mysql".equals(configuration.type()) ?
                 "jdbc:mysql://%s/%s".formatted(configuration.hostname(), configuration.database()) :
