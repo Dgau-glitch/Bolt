@@ -722,20 +722,30 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
     @Override
     public Collection<Protection> findProtections(final World world, final BoundingBox boundingBox) {
         final Collection<Protection> protections = new ArrayList<>();
-        bolt.getStore().loadBlockProtections(world.getName(), (int) Math.floor(boundingBox.getMinX()), (int) Math.floor(boundingBox.getMinY()), (int) Math.floor(boundingBox.getMinZ()), (int) Math.floor(boundingBox.getMaxX()), (int) Math.floor(boundingBox.getMaxY()), (int) Math.floor(boundingBox.getMaxZ())).join().stream()
-                .filter(p -> boundingBox.contains(p.getX(), p.getY(), p.getZ()))
-                .forEach(protections::add);
-        Collection<EntityProtection> entityProtections = bolt.getStore().loadEntityProtections().join();
-        for (final EntityProtection entityProtection : entityProtections) {
-            final Entity entity = getServer().getEntity(entityProtection.getId());
-            if (entity == null) {
-                continue;
-            }
-            if (world.getName().equals(entity.getWorld().getName()) && boundingBox.contains(entity.getBoundingBox())) {
-                protections.add(entityProtection);
-            }
-        }
+        findBlockProtections(world, boundingBox).forEach(protections::add);
+        findEntityProtections(world, boundingBox).forEach(protections::add);
         return protections;
+    }
+
+    private Collection<BlockProtection> findBlockProtections(final World world, final BoundingBox boundingBox) {
+        return bolt.getStore().loadBlockProtections(
+                        world.getName(),
+                        (int) Math.floor(boundingBox.getMinX()),
+                        (int) Math.floor(boundingBox.getMinY()),
+                        (int) Math.floor(boundingBox.getMinZ()),
+                        (int) Math.floor(boundingBox.getMaxX()),
+                        (int) Math.floor(boundingBox.getMaxY()),
+                        (int) Math.floor(boundingBox.getMaxZ())
+                ).join().stream()
+                .filter(protection -> boundingBox.contains(protection.getX(), protection.getY(), protection.getZ()))
+                .toList();
+    }
+
+    private Collection<EntityProtection> findEntityProtections(final World world, final BoundingBox boundingBox) {
+        return world.getNearbyEntities(boundingBox).stream()
+                .map(entity -> bolt.getStore().loadEntityProtection(entity.getUniqueId()).join())
+                .filter(entityProtection -> entityProtection != null)
+                .toList();
     }
 
     @Override
