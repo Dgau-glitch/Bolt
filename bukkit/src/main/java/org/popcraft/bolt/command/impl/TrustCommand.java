@@ -23,43 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 public class TrustCommand extends BoltCommand {
     public TrustCommand(BoltPlugin plugin) {
         super(plugin);
-    }
-
-    private TrustAccessSelection parseTrustAccess(final Arguments arguments) {
-        final String firstOptional = arguments.next();
-        if (firstOptional == null) {
-            return new TrustAccessSelection(plugin.getDefaultAccessType(), false);
-        }
-        if (isBoolean(firstOptional)) {
-            final boolean ownerTrusted = Boolean.parseBoolean(firstOptional);
-            return new TrustAccessSelection(ownerTrusted ? plugin.getOwnerAccessType() : plugin.getDefaultAccessType(), ownerTrusted);
-        }
-        final String ownerFlag = arguments.next();
-        final boolean ownerTrusted = isBoolean(ownerFlag) && Boolean.parseBoolean(ownerFlag);
-        return new TrustAccessSelection(ownerTrusted ? plugin.getOwnerAccessType() : firstOptional.toLowerCase(), ownerTrusted);
-    }
-
-    private boolean isBoolean(final String value) {
-        return "true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value);
-    }
-
-    protected List<String> accessAndOwnerFlagSuggestions(final CommandSender sender) {
-        return Stream.concat(
-                        plugin.getBolt().getAccessRegistry().access().stream()
-                                .filter(access -> !access.restricted() || sender.hasPermission("bolt.type.access.%s".formatted(access.type())))
-                                .map(Access::type),
-                        Stream.of("false", "true")
-                )
-                .distinct()
-                .toList();
-    }
-
-    private record TrustAccessSelection(String accessType, boolean ownerTrusted) {
     }
 
     public void trustModify(final CommandSender sender, final UUID uuid, final boolean adding, final Arguments arguments) {
@@ -78,17 +45,17 @@ public class TrustCommand extends BoltCommand {
             return;
         }
         final String sourceIdentifier = arguments.next();
-        final TrustAccessSelection accessSelection = parseTrustAccess(arguments);
-        final Access access = plugin.getBolt().getAccessRegistry().getAccessByType(accessSelection.accessType()).orElse(null);
+        final String accessType = Objects.requireNonNullElse(arguments.next(), plugin.getDefaultAccessType()).toLowerCase();
+        final Access access = plugin.getBolt().getAccessRegistry().getAccessByType(accessType).orElse(null);
         if (access == null) {
             BoltComponents.sendMessage(
                 sender,
                 Translation.EDIT_ACCESS_INVALID,
-                Placeholder.component(Translation.Placeholder.ACCESS_TYPE, Component.text(accessSelection.accessType()))
+                Placeholder.component(Translation.Placeholder.ACCESS_TYPE, Component.text(accessType))
             );
             return;
         }
-        if (!accessSelection.ownerTrusted() && access.restricted() && !sender.hasPermission("bolt.type.access.%s".formatted(access.type()))) {
+        if (access.restricted() && !sender.hasPermission("bolt.type.access.%s".formatted(access.type()))) {
             BoltComponents.sendMessage(sender, Translation.EDIT_ACCESS_NO_PERMISSION);
             return;
         }
@@ -163,11 +130,10 @@ public class TrustCommand extends BoltCommand {
         }
         arguments.next();
         if (arguments.remaining() == 0) {
-            return accessAndOwnerFlagSuggestions(sender);
-        }
-        arguments.next();
-        if (arguments.remaining() == 0) {
-            return List.of("false", "true");
+            return plugin.getBolt().getAccessRegistry().access().stream()
+                    .filter(access -> !access.restricted() || sender.hasPermission("bolt.type.access.%s".formatted(access.type())))
+                    .map(Access::type)
+                    .toList();
         }
         return Collections.emptyList();
     }
@@ -178,7 +144,7 @@ public class TrustCommand extends BoltCommand {
                 sender,
                 Translation.HELP_COMMAND_SHORT_TRUST,
                 Placeholder.component(Translation.Placeholder.COMMAND, Component.text("/bolt trust")),
-                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(add|remove) <group|player> <name> [access] [owner]"))
+                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(add|remove) <group|player> <name> [access]"))
         );
     }
 

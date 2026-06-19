@@ -191,7 +191,6 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
     private final Set<Mode> defaultModes = new HashSet<>();
     private String defaultProtectionType = "private";
     private String defaultAccessType = "normal";
-    private String ownerAccessType = "owner";
     private Map<String, SourceTransformer> sourceTransformers = new HashMap<>();
     private boolean useActionBar;
     private boolean doors;
@@ -311,7 +310,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
                 }
             }
         }
-        ownerAccessType = bolt.getAccessRegistry().findAccessTypeWithExactPermissions(DefaultAccess.OWNER).orElse("owner");
+        final String ownerAccessType = bolt.getAccessRegistry().findAccessTypeWithExactPermissions(DefaultAccess.OWNER).orElse("owner");
         if (bolt.getAccessRegistry().getAccessByType(ownerAccessType).isEmpty()) {
             bolt.getAccessRegistry().registerAccessType(ownerAccessType, false, DefaultAccess.OWNER);
         }
@@ -605,9 +604,6 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         return defaultAccessType;
     }
 
-    public String getOwnerAccessType() {
-        return ownerAccessType;
-    }
 
     public BlockMatcher getChestMatcher() {
         return CHEST_MATCHER;
