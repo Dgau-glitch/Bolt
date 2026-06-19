@@ -82,6 +82,7 @@ tasks.register("checkFoliaMigration") {
         val forbiddenScheduler = Regex("Bukkit\\.getScheduler|getServer\\(\\)\\.getScheduler|scheduleSync")
         val forbiddenChunkEntities = Regex("\\.getEntities\\(")
         val forbiddenInventoryExtendedLookup = Regex("\\.findProtection\\(")
+        val forbiddenBlockingJoin = Regex("\\.join\\(")
         val violations = mutableListOf<String>()
         sourceRoots.map(::file).filter(File::exists).forEach { root ->
             root.walkTopDown().filter { it.isFile && it.extension == "java" }.forEach { source ->
@@ -95,6 +96,9 @@ tasks.register("checkFoliaMigration") {
                 }
                 if (canonicalSource == inventoryListener && forbiddenInventoryExtendedLookup.containsMatchIn(text)) {
                     violations.add("Inventory hot path must use direct protection lookup, not extended matchers: ${source.relativeTo(projectDir)}")
+                }
+                if (source.toPath().toString().contains("/listeners/") && forbiddenBlockingJoin.containsMatchIn(text)) {
+                    violations.add("Listeners must not block region/entity threads with CompletableFuture.join(): ${source.relativeTo(projectDir)}")
                 }
             }
         }

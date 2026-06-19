@@ -3,6 +3,8 @@ language: en
 settings:
   use-action-bar: false
   redstone-extended-protection-lookup: false
+  strict-folia-region-checks: false
+  shutdown-flush-timeout-seconds: 30
   per-player-locale: true
 database:
   type: sqlite

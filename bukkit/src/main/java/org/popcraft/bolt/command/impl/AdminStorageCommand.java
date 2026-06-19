@@ -7,6 +7,7 @@ import org.popcraft.bolt.BoltPlugin;
 import org.popcraft.bolt.command.Arguments;
 import org.popcraft.bolt.command.BoltCommand;
 import org.popcraft.bolt.data.SQLStore;
+import org.popcraft.bolt.data.StorageHealth;
 import org.popcraft.bolt.data.Store;
 import org.popcraft.bolt.lang.Translation;
 import org.popcraft.bolt.util.BoltComponents;
@@ -29,6 +30,10 @@ public class AdminStorageCommand extends BoltCommand {
     @Override
     public void execute(CommandSender sender, Arguments arguments) {
         final String method = arguments.next();
+        if ("status".equalsIgnoreCase(method)) {
+            sendStatus(sender);
+            return;
+        }
         if (!"export".equalsIgnoreCase(method) && !"import".equalsIgnoreCase(method)) {
             shortHelp(sender, arguments);
             return;
@@ -50,6 +55,19 @@ public class AdminStorageCommand extends BoltCommand {
             runStorageAsync(() -> exportStorage(sender, exportPath, databaseConfiguration, currentStore));
         } else {
             runStorageAsync(() -> importStorage(sender, exportPath, databaseConfiguration, currentStore));
+        }
+    }
+
+    private void sendStatus(final CommandSender sender) {
+        final Store store = plugin.getBolt().getStore();
+        final StorageHealth health = store.health();
+        sender.sendMessage(Component.text("Bolt storage status:"));
+        sender.sendMessage(Component.text("- Pending saves: " + store.pendingSave()));
+        sender.sendMessage(Component.text("- Degraded: " + health.degraded()));
+        sender.sendMessage(Component.text("- Successful flushes: " + health.successfulFlushes()));
+        sender.sendMessage(Component.text("- Failed flushes: " + health.failedFlushes()));
+        if (!health.lastError().isBlank()) {
+            sender.sendMessage(Component.text("- Last error: " + health.lastError()));
         }
     }
 
@@ -104,7 +122,7 @@ public class AdminStorageCommand extends BoltCommand {
 
     @Override
     public List<String> suggestions(CommandSender sender, Arguments arguments) {
-        return List.of("export", "import");
+        return List.of("export", "import", "status");
     }
 
     @Override
@@ -113,7 +131,7 @@ public class AdminStorageCommand extends BoltCommand {
                 sender,
                 Translation.HELP_COMMAND_SHORT_ADMIN_STORAGE,
                 Placeholder.component(Translation.Placeholder.COMMAND, Component.text("/bolt admin storage")),
-                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(export|import)"))
+                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(export|import|status)"))
         );
     }
 

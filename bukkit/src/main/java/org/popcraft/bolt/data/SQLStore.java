@@ -11,6 +11,7 @@ import org.popcraft.bolt.util.Group;
 import org.popcraft.bolt.util.Metrics;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -56,6 +58,11 @@ public class SQLStore implements Store, AutoCloseable {
     private final Map<UUID, AccessList> saveAccessLists = new ConcurrentHashMap<>();
     private final Map<UUID, AccessList> removeAccessLists = new ConcurrentHashMap<>();
     private final AtomicBoolean flushRequested = new AtomicBoolean();
+    private final AtomicInteger failedFlushes = new AtomicInteger();
+    private final AtomicInteger successfulFlushes = new AtomicInteger();
+    private volatile String lastError = "";
+    private volatile long lastFailureTime;
+    private volatile long lastSuccessTime;
     private final Configuration configuration;
     private final String connectionUrl;
     private Connection connection;
@@ -229,7 +236,7 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void saveBlockProtectionNow(BlockProtection protection) {
+    private void saveBlockProtectionNow(BlockProtection protection) throws SQLException {
         try (final PreparedStatement replaceBlock = connection.prepareStatement(Statements.REPLACE_BLOCK.get(configuration.type()).formatted(configuration.prefix()))) {
             replaceBlock.setString(1, protection.getId().toString());
             replaceBlock.setString(2, protection.getOwner().toString());
@@ -243,8 +250,6 @@ public class SQLStore implements Store, AutoCloseable {
             replaceBlock.setInt(10, protection.getZ());
             replaceBlock.setString(11, protection.getBlock());
             replaceBlock.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -256,12 +261,10 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void removeBlockProtectionNow(BlockProtection protection) {
+    private void removeBlockProtectionNow(BlockProtection protection) throws SQLException {
         try (final PreparedStatement deleteBlock = connection.prepareStatement(Statements.DELETE_BLOCK.get(configuration.type()).formatted(configuration.prefix()))) {
             deleteBlock.setString(1, protection.getId().toString());
             deleteBlock.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -329,7 +332,7 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void saveEntityProtectionNow(EntityProtection protection) {
+    private void saveEntityProtectionNow(EntityProtection protection) throws SQLException {
         try (final PreparedStatement replaceEntity = connection.prepareStatement(Statements.REPLACE_ENTITY.get(configuration.type()).formatted(configuration.prefix()))) {
             replaceEntity.setString(1, protection.getId().toString());
             replaceEntity.setString(2, protection.getOwner().toString());
@@ -339,8 +342,6 @@ public class SQLStore implements Store, AutoCloseable {
             replaceEntity.setString(6, GSON.toJson(protection.getAccess(), ACCESS_LIST_TYPE));
             replaceEntity.setString(7, protection.getEntity());
             replaceEntity.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -352,12 +353,10 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void removeEntityProtectionNow(EntityProtection protection) {
+    private void removeEntityProtectionNow(EntityProtection protection) throws SQLException {
         try (final PreparedStatement deleteEntity = connection.prepareStatement(Statements.DELETE_ENTITY.get(configuration.type()).formatted(configuration.prefix()))) {
             deleteEntity.setString(1, protection.getId().toString());
             deleteEntity.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -416,14 +415,12 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void saveGroupNow(Group group) {
+    private void saveGroupNow(Group group) throws SQLException {
         try (final PreparedStatement replaceGroup = connection.prepareStatement(Statements.REPLACE_GROUP.get(configuration.type()).formatted(configuration.prefix()))) {
             replaceGroup.setString(1, group.getName());
             replaceGroup.setString(2, group.getOwner().toString());
             replaceGroup.setString(3, GSON.toJson(group.getMembers(), PLAYER_LIST_TYPE));
             replaceGroup.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -435,12 +432,10 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void removeGroupNow(Group group) {
+    private void removeGroupNow(Group group) throws SQLException {
         try (final PreparedStatement deleteGroup = connection.prepareStatement(Statements.DELETE_GROUP.get(configuration.type()).formatted(configuration.prefix()))) {
             deleteGroup.setString(1, group.getName());
             deleteGroup.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -496,13 +491,11 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void saveAccessListNow(AccessList accessList) {
+    private void saveAccessListNow(AccessList accessList) throws SQLException {
         try (final PreparedStatement replaceAccessList = connection.prepareStatement(Statements.REPLACE_ACCESS_LIST.get(configuration.type()).formatted(configuration.prefix()))) {
             replaceAccessList.setString(1, accessList.getOwner().toString());
             replaceAccessList.setString(2, GSON.toJson(accessList.getAccess(), ACCESS_LIST_TYPE));
             replaceAccessList.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -514,12 +507,10 @@ public class SQLStore implements Store, AutoCloseable {
         requestFlush();
     }
 
-    private void removeAccessListNow(AccessList accessList) {
+    private void removeAccessListNow(AccessList accessList) throws SQLException {
         try (final PreparedStatement deleteAccessList = connection.prepareStatement(Statements.DELETE_ACCESS_LIST.get(configuration.type()).formatted(configuration.prefix()))) {
             deleteAccessList.setString(1, accessList.getOwner().toString());
             deleteAccessList.execute();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
@@ -534,9 +525,11 @@ public class SQLStore implements Store, AutoCloseable {
         final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
         CompletableFuture.runAsync(() -> {
             try {
-                flushQueued();
-            } finally {
+                flushQueuedOrThrow();
                 completionFuture.complete(null);
+            } catch (final SQLException e) {
+                recordFlushFailure(e);
+                completionFuture.completeExceptionally(e);
             }
         }, executor);
         return completionFuture;
@@ -560,17 +553,66 @@ public class SQLStore implements Store, AutoCloseable {
 
     private void flushQueued() {
         try {
-            flushBatch(saveBlocks, this::saveBlockProtectionNow);
-            flushBatch(removeBlocks, this::removeBlockProtectionNow);
-            flushBatch(saveEntities, this::saveEntityProtectionNow);
-            flushBatch(removeEntities, this::removeEntityProtectionNow);
-            flushBatch(saveGroups, this::saveGroupNow);
-            flushBatch(removeGroups, this::removeGroupNow);
-            flushBatch(saveAccessLists, this::saveAccessListNow);
-            flushBatch(removeAccessLists, this::removeAccessListNow);
-        } catch (SQLException e) {
-            e.printStackTrace();
+            flushQueuedOrThrow();
+        } catch (final SQLException e) {
+            recordFlushFailure(e);
         }
+    }
+
+    private void flushQueuedOrThrow() throws SQLException {
+        flushBatch(saveBlocks, this::saveBlockProtectionNow);
+        flushBatch(removeBlocks, this::removeBlockProtectionNow);
+        flushBatch(saveEntities, this::saveEntityProtectionNow);
+        flushBatch(removeEntities, this::removeEntityProtectionNow);
+        flushBatch(saveGroups, this::saveGroupNow);
+        flushBatch(removeGroups, this::removeGroupNow);
+        flushBatch(saveAccessLists, this::saveAccessListNow);
+        flushBatch(removeAccessLists, this::removeAccessListNow);
+        recordFlushSuccess();
+    }
+
+
+    @Override
+    public StorageHealth health() {
+        return new StorageHealth(failedFlushes.get(), successfulFlushes.get(), lastError, lastFailureTime, lastSuccessTime, failedFlushes.get() > 0 && pendingSave() > 0);
+    }
+
+    @Override
+    public CompletableFuture<Path> emergencyDump(final Path directory) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Files.createDirectories(directory);
+                final Path dumpFile = directory.resolve("bolt-storage-emergency-" + System.currentTimeMillis() + ".json");
+                final Map<String, Object> dump = new HashMap<>();
+                dump.put("created", System.currentTimeMillis());
+                dump.put("health", health());
+                dump.put("saveBlocks", List.copyOf(saveBlocks.values()));
+                dump.put("removeBlocks", List.copyOf(removeBlocks.values()));
+                dump.put("saveEntities", List.copyOf(saveEntities.values()));
+                dump.put("removeEntities", List.copyOf(removeEntities.values()));
+                dump.put("saveGroups", List.copyOf(saveGroups.values()));
+                dump.put("removeGroups", List.copyOf(removeGroups.values()));
+                dump.put("saveAccessLists", List.copyOf(saveAccessLists.values()));
+                dump.put("removeAccessLists", List.copyOf(removeAccessLists.values()));
+                Files.writeString(dumpFile, GSON.toJson(dump), StandardCharsets.UTF_8);
+                return dumpFile;
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
+        }, executor);
+    }
+
+    private void recordFlushSuccess() {
+        lastError = "";
+        lastSuccessTime = System.currentTimeMillis();
+        successfulFlushes.incrementAndGet();
+    }
+
+    private void recordFlushFailure(final SQLException e) {
+        lastError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        lastFailureTime = System.currentTimeMillis();
+        failedFlushes.incrementAndGet();
+        e.printStackTrace();
     }
 
     private <K, V> void flushBatch(final Map<K, V> queue, final SQLConsumer<V> writer) throws SQLException {
