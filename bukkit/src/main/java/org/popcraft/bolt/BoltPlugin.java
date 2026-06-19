@@ -215,8 +215,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
                 Optional.ofNullable(getConfig().getConfigurationSection("database.properties"))
                         .map(section -> section.getKeys(false))
                         .stream()
-                        .collect(Collectors.toMap(String::valueOf, key -> getConfig().getString("database.properties." + key, ""))),
-                getConfig().getLong("database.flush-delay-ms", 1000L)
+                        .collect(Collectors.toMap(String::valueOf, key -> getConfig().getString("database.properties." + key, "")))
         );
         this.bolt = new Bolt(new SimpleProtectionCache(new SQLStore(databaseConfiguration)));
         reload();

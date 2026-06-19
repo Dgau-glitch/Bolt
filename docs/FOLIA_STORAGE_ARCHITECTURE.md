@@ -24,3 +24,12 @@ SQLite/MySQL flush batches
 - The single DB worker performs reads, immediate/periodic flushes, reconnects, and explicit `flush()` calls.
 - Enqueued values are defensive copies so later in-memory mutations cannot race with the DB worker serialization step.
 - `pendingSave()` reads queue sizes directly and does not block a region thread waiting on the DB worker.
+
+## Durability policy
+
+Protection writes are safety-critical. New lock/unlock/group/access mutations must request an
+immediate DB-worker flush by default; the periodic flush is only a safety net. Do not introduce
+default delayed/debounced flush windows for production storage, because a hard crash inside that
+window can lose the most recent protection changes. Throughput optimizations should instead focus
+on batching the already-requested flush, statement reuse, health reporting, and explicit opt-in
+trade-offs with warnings.

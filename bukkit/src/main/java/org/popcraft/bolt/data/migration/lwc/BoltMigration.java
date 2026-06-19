@@ -63,7 +63,7 @@ public class BoltMigration {
                 lwcCoreConfig.getString("database.username", ""),
                 lwcCoreConfig.getString("database.password", ""),
                 lwcCoreConfig.getString("database.prefix", "lwc_"),
-                Map.of("useSSL", lwcCoreConfig.getString("database.useSSL", "false")), 0L
+                Map.of("useSSL", lwcCoreConfig.getString("database.useSSL", "false"))
         );
         final String connectionUrl = "mysql".equals(configuration.type()) ?
                 "jdbc:mysql://%s/%s".formatted(configuration.hostname(), configuration.database()) :

@@ -40,7 +40,7 @@ public class AdminStorageCommand extends BoltCommand {
 
         final Path exportPath = plugin.getDataPath().resolve("export.db");
         final SQLStore.Configuration databaseConfiguration = new SQLStore.Configuration(
-                "sqlite", exportPath.toString(), "", "", "", "", "", Map.of(), 0L
+                "sqlite", exportPath.toString(), "", "", "", "", "", Map.of()
         );
 
         final Store currentStore = plugin.getBolt().getStore();

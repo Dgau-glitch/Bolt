@@ -11,9 +11,6 @@ database:
   username: ""
   password: ""
   prefix: ""
-  # Debounces asynchronous writes so bulk lock/unlock operations batch into fewer database transactions.
-  # Set to 0 to flush every queued change as soon as possible.
-  flush-delay-ms: 1000
   properties: [ ]
 protections:
   private:
