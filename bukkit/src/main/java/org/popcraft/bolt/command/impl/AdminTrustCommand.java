@@ -5,7 +5,6 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.popcraft.bolt.BoltPlugin;
-import org.popcraft.bolt.access.Access;
 import org.popcraft.bolt.command.Arguments;
 import org.popcraft.bolt.lang.Translation;
 import org.popcraft.bolt.source.SourceType;
@@ -77,10 +76,11 @@ public class AdminTrustCommand extends TrustCommand {
         }
         arguments.next();
         if (arguments.remaining() == 0) {
-            return plugin.getBolt().getAccessRegistry().access().stream()
-                    .filter(access -> !access.restricted() || sender.hasPermission("bolt.type.access.%s".formatted(access.type())))
-                    .map(Access::type)
-                    .toList();
+            return accessAndOwnerFlagSuggestions(sender);
+        }
+        arguments.next();
+        if (arguments.remaining() == 0) {
+            return List.of("false", "true");
         }
         return Collections.emptyList();
     }
@@ -91,7 +91,7 @@ public class AdminTrustCommand extends TrustCommand {
                 sender,
                 Translation.HELP_COMMAND_SHORT_ADMIN_TRUST,
                 Placeholder.component(Translation.Placeholder.COMMAND, Component.text("/bolt admin trust")),
-                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(add|remove|list)"))
+                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("<player> (add|remove|list) <group|player> <name> [access] [owner]"))
         );
     }
 

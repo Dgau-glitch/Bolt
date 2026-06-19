@@ -39,6 +39,9 @@ access:
   admin:
     require-permission: true
     allows: [ "redstone", "interact", "open", "deposit", "withdraw", "mount", "edit" ]
+  owner:
+    require-permission: false
+    allows: [ "redstone", "interact", "open", "deposit", "withdraw", "mount", "edit", "destroy" ]
 sources:
   player:
     require-permission: false
