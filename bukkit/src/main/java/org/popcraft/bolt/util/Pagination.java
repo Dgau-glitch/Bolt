@@ -40,6 +40,7 @@ public class Pagination {
         final boolean newFindFormat = Translator.isTranslated(Translation.FIND_HEADER_NEW, getLocaleOf(sender));
         final int total = protections.size();
         final int totalPages = Math.max(0, (int) Math.ceil((double) total / RESULTS_PER_PAGE) - 1);
+        BoltComponents.sendMessage(sender, Translation.FIND_DIVIDER);
         if (newFindFormat) {
             BoltComponents.sendMessage(
                     sender,
