@@ -7,6 +7,8 @@ import org.popcraft.bolt.util.BlockLocation;
 import org.popcraft.bolt.util.Group;
 import org.popcraft.bolt.util.Metrics;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -17,6 +19,7 @@ public class SimpleProtectionCache implements Store {
     private final Map<BlockLocation, UUID> cachedBlockLocationId = new ConcurrentHashMap<>();
     private final Map<UUID, BlockLocation> cachedBlockIdLocation = new ConcurrentHashMap<>();
     private final Map<UUID, BlockProtection> cachedBlocks = new ConcurrentHashMap<>();
+    private final Map<String, Map<UUID, BlockProtection>> cachedBlocksByChunk = new ConcurrentHashMap<>();
     private final Map<UUID, EntityProtection> cachedEntities = new ConcurrentHashMap<>();
     private final Map<String, Group> cachedGroups = new ConcurrentHashMap<>();
     private final Map<UUID, AccessList> cachedAccessLists = new ConcurrentHashMap<>();
@@ -30,6 +33,7 @@ public class SimpleProtectionCache implements Store {
             cachedBlockLocationId.put(blockLocation, id);
             cachedBlockIdLocation.put(id, blockLocation);
             cachedBlocks.put(id, blockProtection);
+            cachedBlocksByChunk.computeIfAbsent(chunkKey(blockLocation), ignored -> new ConcurrentHashMap<>()).put(id, blockProtection);
         });
         backingStore.loadEntityProtections().join().forEach(entityProtection -> cachedEntities.putIfAbsent(entityProtection.getId(), entityProtection));
         backingStore.loadGroups().join().forEach(group -> cachedGroups.putIfAbsent(group.getName(), group));
@@ -50,16 +54,37 @@ public class SimpleProtectionCache implements Store {
     }
 
     @Override
+    public CompletableFuture<Collection<BlockProtection>> loadBlockProtections(final String world, final int minX, final int minY, final int minZ, final int maxX, final int maxY, final int maxZ) {
+        final Collection<BlockProtection> protections = new ArrayList<>();
+        for (int chunkX = Math.floorDiv(minX, 16); chunkX <= Math.floorDiv(maxX, 16); ++chunkX) {
+            for (int chunkZ = Math.floorDiv(minZ, 16); chunkZ <= Math.floorDiv(maxZ, 16); ++chunkZ) {
+                final Map<UUID, BlockProtection> chunkProtections = cachedBlocksByChunk.get(chunkKey(world, chunkX, chunkZ));
+                if (chunkProtections == null) {
+                    continue;
+                }
+                chunkProtections.values().stream()
+                        .filter(protection -> protection.getX() >= minX && protection.getX() <= maxX)
+                        .filter(protection -> protection.getY() >= minY && protection.getY() <= maxY)
+                        .filter(protection -> protection.getZ() >= minZ && protection.getZ() <= maxZ)
+                        .forEach(protections::add);
+            }
+        }
+        return CompletableFuture.completedFuture(protections);
+    }
+
+    @Override
     public void saveBlockProtection(BlockProtection protection) {
         final UUID id = protection.getId();
         final BlockLocation oldBlockLocation = cachedBlockIdLocation.remove(id);
         if (oldBlockLocation != null) {
             cachedBlockLocationId.remove(oldBlockLocation);
+            removeFromChunkIndex(id, oldBlockLocation);
         }
         final BlockLocation blockLocation = BlockLocation.fromProtection(protection);
         cachedBlockLocationId.put(blockLocation, id);
         cachedBlockIdLocation.put(id, blockLocation);
         cachedBlocks.put(id, protection);
+        cachedBlocksByChunk.computeIfAbsent(chunkKey(blockLocation), ignored -> new ConcurrentHashMap<>()).put(id, protection);
         backingStore.saveBlockProtection(protection);
     }
 
@@ -70,7 +95,27 @@ public class SimpleProtectionCache implements Store {
         cachedBlockLocationId.remove(blockLocation);
         cachedBlockIdLocation.remove(id);
         cachedBlocks.remove(id);
+        removeFromChunkIndex(id, blockLocation);
         backingStore.removeBlockProtection(protection);
+    }
+
+    private void removeFromChunkIndex(final UUID id, final BlockLocation blockLocation) {
+        final Map<UUID, BlockProtection> chunkProtections = cachedBlocksByChunk.get(chunkKey(blockLocation));
+        if (chunkProtections == null) {
+            return;
+        }
+        chunkProtections.remove(id);
+        if (chunkProtections.isEmpty()) {
+            cachedBlocksByChunk.remove(chunkKey(blockLocation), chunkProtections);
+        }
+    }
+
+    private String chunkKey(final BlockLocation blockLocation) {
+        return chunkKey(blockLocation.world(), Math.floorDiv(blockLocation.x(), 16), Math.floorDiv(blockLocation.z(), 16));
+    }
+
+    private String chunkKey(final String world, final int chunkX, final int chunkZ) {
+        return world + ':' + chunkX + ':' + chunkZ;
     }
 
     @Override
@@ -149,5 +194,15 @@ public class SimpleProtectionCache implements Store {
     @Override
     public CompletableFuture<Void> flush() {
         return backingStore.flush();
+    }
+
+    @Override
+    public StorageHealth health() {
+        return backingStore.health();
+    }
+
+    @Override
+    public CompletableFuture<Path> emergencyDump(final Path directory) {
+        return backingStore.emergencyDump(directory);
     }
 }

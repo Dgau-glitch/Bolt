@@ -91,7 +91,7 @@ public class AdminTrustCommand extends TrustCommand {
                 sender,
                 Translation.HELP_COMMAND_SHORT_ADMIN_TRUST,
                 Placeholder.component(Translation.Placeholder.COMMAND, Component.text("/bolt admin trust")),
-                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(add|remove|list)"))
+                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("<player> (add|remove|list) <group|player> <name> [access]"))
         );
     }
 

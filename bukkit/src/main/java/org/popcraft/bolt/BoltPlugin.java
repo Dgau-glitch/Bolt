@@ -135,6 +135,7 @@ import org.popcraft.bolt.util.BoltPlayer;
 import org.popcraft.bolt.util.BukkitPlayerResolver;
 import org.popcraft.bolt.util.EnumUtil;
 import org.popcraft.bolt.util.Group;
+import org.popcraft.bolt.util.FoliaRegionGuard;
 import org.popcraft.bolt.util.Mode;
 import org.popcraft.bolt.util.ProtectableConfig;
 import org.popcraft.bolt.util.ProtectionMessages;
@@ -152,6 +153,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -197,6 +199,8 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
     private int doorsCloseAfter;
     private boolean doorsFixPlugins;
     private boolean redstoneExtendedProtectionLookup;
+    private boolean strictFoliaRegionChecks;
+    private long shutdownFlushTimeoutSeconds;
     private Bolt bolt;
     private CallbackManager callbackManager;
     private EventBus<Event> eventBus;
@@ -237,7 +241,21 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         HandlerList.unregisterAll(this);
         commands.clear();
         getLogger().info(() -> "Flushing protection updates (%d)".formatted(bolt.getStore().pendingSave()));
-        bolt.getStore().flush().join();
+        try {
+            bolt.getStore().flush().get(shutdownFlushTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (final Exception e) {
+            getLogger().severe(() -> "Timed out or failed while flushing protection updates. Pending saves: %d. Creating emergency dump.".formatted(bolt.getStore().pendingSave()));
+            e.printStackTrace();
+            try {
+                final Path dumpPath = bolt.getStore().emergencyDump(getDataPath().resolve("emergency-dumps")).get(10, TimeUnit.SECONDS);
+                if (dumpPath != null) {
+                    getLogger().severe(() -> "Wrote Bolt emergency storage dump to " + dumpPath);
+                }
+            } catch (final Exception dumpException) {
+                getLogger().severe("Failed to write Bolt emergency storage dump.");
+                dumpException.printStackTrace();
+            }
+        }
         getServer().getServicesManager().unregisterAll(this);
     }
 
@@ -251,6 +269,8 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         this.doorsCloseAfter = getConfig().getInt("doors.close-after", 0);
         this.doorsFixPlugins = getConfig().getBoolean("doors.fix-plugins", false);
         this.redstoneExtendedProtectionLookup = getConfig().getBoolean("settings.redstone-extended-protection-lookup", false);
+        this.strictFoliaRegionChecks = getConfig().getBoolean("settings.strict-folia-region-checks", false);
+        this.shutdownFlushTimeoutSeconds = Math.max(1L, getConfig().getLong("settings.shutdown-flush-timeout-seconds", 30L));
         registerAccessTypes();
         registerProtectableAccess();
         nagInvalidHopperConfig();
@@ -289,6 +309,10 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
                     defaultAccessType = type;
                 }
             }
+        }
+        final String ownerAccessType = bolt.getAccessRegistry().findAccessTypeWithExactPermissions(DefaultAccess.OWNER).orElse("owner");
+        if (bolt.getAccessRegistry().getAccessByType(ownerAccessType).isEmpty()) {
+            bolt.getAccessRegistry().registerAccessType(ownerAccessType, false, DefaultAccess.OWNER);
         }
     }
 
@@ -580,6 +604,7 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
         return defaultAccessType;
     }
 
+
     public BlockMatcher getChestMatcher() {
         return CHEST_MATCHER;
     }
@@ -604,32 +629,38 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
 
     @Override
     public boolean isProtected(final Block block) {
+        requireOwned(block, "checking block protection");
         return findProtection(block) != null;
     }
 
     @Override
     public boolean isProtected(final Entity entity) {
+        requireOwned(entity, "checking entity protection");
         return findProtection(entity) != null;
     }
 
     @Override
     public boolean isProtectedExact(Block block) {
+        requireOwned(block, "checking exact block protection");
         return loadProtection(block) != null;
     }
 
     @Override
     public boolean isProtectedExact(Entity entity) {
+        requireOwned(entity, "checking exact entity protection");
         return loadProtection(entity) != null;
     }
 
     @Override
     public BlockProtection createProtection(final Block block, final UUID owner, final String type) {
+        requireOwned(block, "creating block protection");
         final long now = System.currentTimeMillis();
         return new BlockProtection(UUID.randomUUID(), owner, type, now, now, new HashMap<>(), block.getWorld().getName(), block.getX(), block.getY(), block.getZ(), block.getType().name());
     }
 
     @Override
     public EntityProtection createProtection(final Entity entity, final UUID owner, final String type) {
+        requireOwned(entity, "creating entity protection");
         final long now = System.currentTimeMillis();
         return new EntityProtection(entity.getUniqueId(), owner, type, now, now, new HashMap<>(), entity.getType().name());
     }
@@ -644,12 +675,14 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
 
     @Override
     public BlockProtection loadProtection(Block block) {
+        requireOwned(block, "loading block protection");
         final BlockLocation blockLocation = new BlockLocation(block.getWorld().getName(), block.getX(), block.getY(), block.getZ());
         return bolt.getStore().loadBlockProtection(blockLocation).join();
     }
 
     @Override
     public EntityProtection loadProtection(Entity entity) {
+        requireOwned(entity, "loading entity protection");
         final UUID uuid = entity.getUniqueId();
         return bolt.getStore().loadEntityProtection(uuid).join();
     }
@@ -674,16 +707,19 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
 
     @Override
     public Protection findProtection(final Block block) {
+        requireOwned(block, "finding block protection");
         return findProtection(block, true);
     }
 
     public Protection findProtection(final Block block, final boolean extendedLookup) {
+        requireOwned(block, "finding block protection");
         final Protection protection = loadProtection(block);
         return protection != null || !extendedLookup ? protection : matchProtection(block);
     }
 
     @Override
     public Protection findProtection(final Entity entity) {
+        requireOwned(entity, "finding entity protection");
         final Protection protection = loadProtection(entity);
         return protection != null ? protection : matchProtection(entity);
     }
@@ -691,30 +727,41 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
     @Override
     public Collection<Protection> findProtections(final World world, final BoundingBox boundingBox) {
         final Collection<Protection> protections = new ArrayList<>();
-        bolt.getStore().loadBlockProtections().join().stream()
-                .filter(p -> world.getName().equals(p.getWorld()))
-                .filter(p -> boundingBox.contains(p.getX(), p.getY(), p.getZ()))
-                .forEach(protections::add);
-        Collection<EntityProtection> entityProtections = bolt.getStore().loadEntityProtections().join();
-        for (final EntityProtection entityProtection : entityProtections) {
-            final Entity entity = getServer().getEntity(entityProtection.getId());
-            if (entity == null) {
-                continue;
-            }
-            if (world.getName().equals(entity.getWorld().getName()) && boundingBox.contains(entity.getBoundingBox())) {
-                protections.add(entityProtection);
-            }
-        }
+        findBlockProtections(world, boundingBox).forEach(protections::add);
+        findEntityProtections(world, boundingBox).forEach(protections::add);
         return protections;
+    }
+
+    private Collection<BlockProtection> findBlockProtections(final World world, final BoundingBox boundingBox) {
+        return bolt.getStore().loadBlockProtections(
+                        world.getName(),
+                        (int) Math.floor(boundingBox.getMinX()),
+                        (int) Math.floor(boundingBox.getMinY()),
+                        (int) Math.floor(boundingBox.getMinZ()),
+                        (int) Math.floor(boundingBox.getMaxX()),
+                        (int) Math.floor(boundingBox.getMaxY()),
+                        (int) Math.floor(boundingBox.getMaxZ())
+                ).join().stream()
+                .filter(protection -> boundingBox.contains(protection.getX(), protection.getY(), protection.getZ()))
+                .toList();
+    }
+
+    private Collection<EntityProtection> findEntityProtections(final World world, final BoundingBox boundingBox) {
+        return world.getNearbyEntities(boundingBox).stream()
+                .map(entity -> bolt.getStore().loadEntityProtection(entity.getUniqueId()).join())
+                .filter(entityProtection -> entityProtection != null)
+                .toList();
     }
 
     @Override
     public boolean canAccess(final Block block, final Player player, final String... permissions) {
+        requireOwned(block, "checking block access");
         return canAccess(findProtection(block), player.getUniqueId(), permissions);
     }
 
     @Override
     public boolean canAccess(final Entity entity, final Player player, final String... permissions) {
+        requireOwned(entity, "checking entity access");
         return canAccess(findProtection(entity), player.getUniqueId(), permissions);
     }
 
@@ -927,6 +974,18 @@ public class BoltPlugin extends JavaPlugin implements BoltAPI {
             }
         }
         return null;
+    }
+
+    private void requireOwned(final Block block, final String operation) {
+        if (DEBUG || strictFoliaRegionChecks) {
+            FoliaRegionGuard.requireOwned(block.getLocation(), operation);
+        }
+    }
+
+    private void requireOwned(final Entity entity, final String operation) {
+        if (DEBUG || strictFoliaRegionChecks) {
+            FoliaRegionGuard.requireOwned(entity, operation);
+        }
     }
 
     @Override

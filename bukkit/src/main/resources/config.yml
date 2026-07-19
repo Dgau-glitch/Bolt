@@ -2,7 +2,14 @@ version: 0
 language: en
 settings:
   use-action-bar: false
+  # Keep false for production: redstone/hopper-like hot paths use direct protection lookup only.
+  # Set true only if you explicitly need matcher-based lookup for attached/related blocks in redstone events,
+  # because that adds extra synchronous work to very frequent events.
   redstone-extended-protection-lookup: false
+  # Keep false for production compatibility: strict checks throw if external API callers use Block/Entity methods
+  # from the wrong Folia region. Enable in staging/debug to find unsafe addon/plugin calls before production.
+  strict-folia-region-checks: false
+  shutdown-flush-timeout-seconds: 30
   per-player-locale: true
 database:
   type: sqlite
@@ -37,6 +44,9 @@ access:
   admin:
     require-permission: true
     allows: [ "redstone", "interact", "open", "deposit", "withdraw", "mount", "edit" ]
+  owner:
+    require-permission: false
+    allows: [ "redstone", "interact", "open", "deposit", "withdraw", "mount", "edit", "destroy" ]
 sources:
   player:
     require-permission: false

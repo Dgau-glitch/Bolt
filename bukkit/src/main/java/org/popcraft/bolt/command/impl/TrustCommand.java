@@ -19,6 +19,7 @@ import org.popcraft.bolt.util.SchedulerUtil;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -67,15 +68,51 @@ public class TrustCommand extends BoltCommand {
                         sourceTransformer.sendErrorNotFound(sourceIdentifier, sender);
                     } else {
                         final Source source = Source.of(sourceType.name(), id);
+                        final boolean modified;
                         if (adding) {
                             accessList.getAccess().put(source.toString(), access.type());
+                            modified = true;
                         } else {
-                            accessList.getAccess().remove(source.toString());
+                            modified = removeAccessSource(accessList, source, sourceIdentifier, sourceTransformer);
                         }
-                        plugin.getBolt().getStore().saveAccessList(accessList);
-                        BoltComponents.sendMessage(sender, Translation.TRUST_EDITED);
+                        if (modified) {
+                            plugin.getBolt().getStore().saveAccessList(accessList);
+                            BoltComponents.sendMessage(sender, Translation.TRUST_EDITED);
+                        } else {
+                            BoltComponents.sendMessage(
+                                    sender,
+                                    Translation.TRUST_EDITED_FAILED,
+                                    Placeholder.component(Translation.Placeholder.COMMAND, Component.text("/bolt trust"))
+                            );
+                        }
                     }
                 }));
+    }
+
+    private boolean removeAccessSource(final AccessList accessList, final Source source, final String sourceIdentifier, final SourceTransformer sourceTransformer) {
+        final Map<String, String> access = accessList.getAccess();
+        boolean removed = access.remove(source.toString()) != null;
+        final Iterator<String> iterator = access.keySet().iterator();
+        while (iterator.hasNext()) {
+            final String storedSourceText = iterator.next();
+            final Source storedSource = Source.parse(storedSourceText);
+            if (storedSource == null || !source.getType().equals(storedSource.getType())) {
+                continue;
+            }
+            if (storedSource.getIdentifier().equalsIgnoreCase(sourceIdentifier) || unTransformMatches(sourceTransformer, storedSource.getIdentifier(), sourceIdentifier)) {
+                iterator.remove();
+                removed = true;
+            }
+        }
+        return removed;
+    }
+
+    private boolean unTransformMatches(final SourceTransformer sourceTransformer, final String storedIdentifier, final String sourceIdentifier) {
+        try {
+            return sourceTransformer.unTransformIdentifier(storedIdentifier).equalsIgnoreCase(sourceIdentifier);
+        } catch (final RuntimeException ignored) {
+            return false;
+        }
     }
 
     public void trustList(final CommandSender sender, final UUID uuid) {
@@ -144,7 +181,7 @@ public class TrustCommand extends BoltCommand {
                 sender,
                 Translation.HELP_COMMAND_SHORT_TRUST,
                 Placeholder.component(Translation.Placeholder.COMMAND, Component.text("/bolt trust")),
-                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(add|remove)"))
+                Placeholder.component(Translation.Placeholder.LITERAL, Component.text("(add|remove) <group|player> <name> [access]"))
         );
     }
 
