@@ -3,9 +3,7 @@ package org.popcraft.bolt.util;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.JoinConfiguration;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
@@ -91,34 +89,13 @@ public final class Protections {
 
     public static Component displayType(final Protection protection, final CommandSender sender) {
         if (protection instanceof final BlockProtection blockProtection) {
-            final Component customDisplayName = CUSTOM_BLOCK_DISPLAY_NAMES.get(normalizeCustomKey(blockProtection.getBlock()));
-            if (customDisplayName != null) {
-                return customDisplayName;
-            }
-            final World world = Bukkit.getWorld(blockProtection.getWorld());
-            final int x = blockProtection.getX();
-            final int y = blockProtection.getY();
-            final int z = blockProtection.getZ();
-            if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) {
-                return displayType(Objects.requireNonNullElse(Material.getMaterial(blockProtection.getBlock().toUpperCase()), Material.AIR), sender);
-            } else {
-                return displayType(world.getBlockAt(x, y, z), sender);
-            }
+            return displayType(Objects.requireNonNullElse(Material.matchMaterial(blockProtection.getBlock()), Material.AIR), sender);
         } else if (protection instanceof final EntityProtection entityProtection) {
-            final Component customDisplayName = CUSTOM_ENTITY_DISPLAY_NAMES.get(normalizeCustomKey(entityProtection.getEntity()));
-            if (customDisplayName != null) {
-                return customDisplayName;
-            }
-            final Entity entity = Bukkit.getServer().getEntity(entityProtection.getId());
-            if (entity == null) {
-                try {
-                    final String entityType = entityProtection.getEntity().toUpperCase();
-                    return displayType(EntityType.valueOf(EntityTypeMapper.map(entityType)), sender);
-                } catch (IllegalArgumentException e) {
-                    return resolveTranslation(Translation.UNKNOWN, sender);
-                }
-            } else {
-                return displayType(entity, sender);
+            try {
+                final String entityType = entityProtection.getEntity().toUpperCase();
+                return displayType(EntityType.valueOf(EntityTypeMapper.map(entityType)), sender);
+            } catch (IllegalArgumentException e) {
+                return resolveTranslation(Translation.UNKNOWN, sender);
             }
         } else {
             return resolveTranslation(Translation.UNKNOWN, sender);
